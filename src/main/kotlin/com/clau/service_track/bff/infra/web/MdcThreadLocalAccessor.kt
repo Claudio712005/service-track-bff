@@ -3,17 +3,17 @@ package com.clau.service_track.bff.infra.web
 import io.micrometer.context.ThreadLocalAccessor
 import org.slf4j.MDC
 
-class MdcThreadLocalAccessor(private val chave: String) : ThreadLocalAccessor<String> {
+class MdcThreadLocalAccessor(private val field: String) : ThreadLocalAccessor<String> {
 
-    override fun key(): Any = chave
+    override fun key(): Any = field
 
-    override fun getValue(): String? = MDC.get(chave)
+    override fun getValue(): String? = MDC.get(field)
 
-    override fun setValue(valor: String) {
-        MDC.put(chave, valor)
+    override fun setValue(value: String) {
+        MDC.put(field, value)
     }
 
     override fun setValue() {
-        MDC.remove(chave)
+        MDC.remove(field)
     }
 }

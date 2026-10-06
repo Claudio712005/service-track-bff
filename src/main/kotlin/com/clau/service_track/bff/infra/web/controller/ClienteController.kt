@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.infra.web
+package com.clau.service_track.bff.infra.web.controller
 
 import com.clau.service_track.bff.application.ClientesService
 import com.clau.service_track.bff.domain.ClienteVeiculos

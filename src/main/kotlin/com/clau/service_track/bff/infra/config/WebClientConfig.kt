@@ -1,5 +1,6 @@
 package com.clau.service_track.bff.infra.config
 
+import com.clau.service_track.bff.infra.usuarios.CorrelationPropagationFilter
 import com.clau.service_track.bff.infra.usuarios.UsuariosProperties
 import io.netty.channel.ChannelOption
 import io.netty.handler.timeout.ReadTimeoutHandler
@@ -35,6 +36,7 @@ class WebClientConfig {
         return construtor
             .baseUrl(properties.baseUrl)
             .clientConnector(ReactorClientHttpConnector(cliente))
+            .filter(CorrelationPropagationFilter())
             .build()
     }
 }

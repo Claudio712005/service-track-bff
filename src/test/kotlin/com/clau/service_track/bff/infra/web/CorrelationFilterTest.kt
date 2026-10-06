@@ -16,7 +16,12 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.web.reactive.server.WebTestClient
 
-@SpringBootTest
+@SpringBootTest(
+    properties = [
+        "servicetrack.usuarios.base-url=http://localhost:9999",
+        "ST_BFF_LOG_FORMAT=",
+    ],
+)
 class CorrelationFilterTest {
 
     @Autowired
@@ -50,18 +55,18 @@ class CorrelationFilterTest {
         val correlacao = "correlacao-de-teste-1"
 
         val resposta = cliente.get().uri("/clientes")
-            .header(CorrelationFilter.CABECALHO_CORRELACAO, correlacao)
+            .header(CorrelationFilter.CORRELATION_HEADER, correlacao)
             .exchange()
             .returnResult(String::class.java)
 
-        assertEquals(correlacao, resposta.responseHeaders.getFirst(CorrelationFilter.CABECALHO_CORRELACAO))
-        assertNotNull(resposta.responseHeaders.getFirst(CorrelationFilter.CABECALHO_REQUISICAO))
+        assertEquals(correlacao, resposta.responseHeaders.getFirst(CorrelationFilter.CORRELATION_HEADER))
+        assertNotNull(resposta.responseHeaders.getFirst(CorrelationFilter.REQUEST_HEADER))
 
         val linha = coletor.list.firstOrNull { it.message.startsWith("requisicao concluida") }
         assertNotNull(linha, "nenhuma linha de acesso foi registrada")
 
-        assertEquals(correlacao, linha.mdcPropertyMap[CorrelationFilter.CHAVE_CORRELACAO])
-        assertNotNull(linha.mdcPropertyMap[CorrelationFilter.CHAVE_REQUISICAO])
+        assertEquals(correlacao, linha.mdcPropertyMap[CorrelationFilter.CORRELATION_FIELD])
+        assertNotNull(linha.mdcPropertyMap[CorrelationFilter.REQUEST_FIELD])
         assertTrue(linha.formattedMessage.contains("rota=/clientes"))
     }
 
@@ -69,7 +74,7 @@ class CorrelationFilterTest {
     fun `gera correlacao quando o cliente nao manda`() {
         val resposta = cliente.get().uri("/mecanicos").exchange().returnResult(String::class.java)
 
-        val gerada = resposta.responseHeaders.getFirst(CorrelationFilter.CABECALHO_CORRELACAO)
+        val gerada = resposta.responseHeaders.getFirst(CorrelationFilter.CORRELATION_HEADER)
         assertNotNull(gerada)
         assertEquals(36, gerada.length)
     }
@@ -79,7 +84,7 @@ class CorrelationFilterTest {
         val correlacao = "correlacao-entre-threads"
 
         cliente.get().uri("/mecanicos")
-            .header(CorrelationFilter.CABECALHO_CORRELACAO, correlacao)
+            .header(CorrelationFilter.CORRELATION_HEADER, correlacao)
             .exchange()
             .returnResult(String::class.java)
 
@@ -88,15 +93,15 @@ class CorrelationFilterTest {
 
         assertEquals(
             correlacao,
-            doAdaptador.mdcPropertyMap[CorrelationFilter.CHAVE_CORRELACAO],
+            doAdaptador.mdcPropertyMap[CorrelationFilter.CORRELATION_FIELD],
             "contexto perdido entre a thread do servidor e a thread do cliente HTTP",
         )
 
         val doFiltro = coletor.list.firstOrNull { it.message.startsWith("requisicao concluida") }
         assertNotNull(doFiltro)
         assertEquals(
-            doAdaptador.mdcPropertyMap[CorrelationFilter.CHAVE_REQUISICAO],
-            doFiltro.mdcPropertyMap[CorrelationFilter.CHAVE_REQUISICAO],
+            doAdaptador.mdcPropertyMap[CorrelationFilter.REQUEST_FIELD],
+            doFiltro.mdcPropertyMap[CorrelationFilter.REQUEST_FIELD],
             "filtro e adaptador viram requestId diferentes na mesma requisicao",
         )
     }
@@ -110,5 +115,19 @@ class CorrelationFilterTest {
             threads.size > 1,
             "tudo rodou na mesma thread ($threads): o teste de propagacao nao exercitou troca de thread",
         )
+    }
+
+    @Test
+    fun `o corpo de erro carrega a correlacao lida do contexto`() {
+        val correlacao = "correlacao-no-corpo-de-erro"
+
+        cliente.get().uri("/clientes")
+            .header(CorrelationFilter.CORRELATION_HEADER, correlacao)
+            .exchange()
+            .expectStatus().is5xxServerError
+            .expectBody()
+            .jsonPath("$.correlationId").isEqualTo(correlacao)
+            .jsonPath("$.requestId").exists()
+            .jsonPath("$.rota").isEqualTo("/clientes")
     }
 }

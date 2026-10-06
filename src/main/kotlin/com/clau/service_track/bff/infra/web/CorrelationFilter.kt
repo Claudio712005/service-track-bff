@@ -5,9 +5,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.HandlerMapping
 import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
+import org.springframework.web.util.pattern.PathPattern
 import reactor.core.publisher.Mono
 
 @Component
@@ -16,61 +18,61 @@ class CorrelationFilter : WebFilter {
 
     private val log = LoggerFactory.getLogger(CorrelationFilter::class.java)
 
-    override fun filter(troca: ServerWebExchange, cadeia: WebFilterChain): Mono<Void> {
-        val correlacao = sanear(troca.request.headers.getFirst(CABECALHO_CORRELACAO)) ?: gerar()
-        val requisicaoId = gerar()
+    override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
+        val correlation = sanitize(exchange.request.headers.getFirst(CORRELATION_HEADER)) ?: generate()
+        val requestId = generate()
 
-        troca.response.headers.set(CABECALHO_CORRELACAO, correlacao)
-        troca.response.headers.set(CABECALHO_REQUISICAO, requisicaoId)
+        exchange.response.headers.set(CORRELATION_HEADER, correlation)
+        exchange.response.headers.set(REQUEST_HEADER, requestId)
 
-        val inicio = System.nanoTime()
+        val start = System.nanoTime()
 
-        return cadeia.filter(troca)
+        return chain.filter(exchange)
             .doFinally {
-                if (!ignorado(troca.request.path.value())) {
-                    registrar(troca, (System.nanoTime() - inicio) / 1_000_000)
+                if (!skipped(exchange.request.path.value())) {
+                    record(exchange, (System.nanoTime() - start) / 1_000_000)
                 }
             }
-            .contextWrite { contexto ->
-                contexto.put(CHAVE_CORRELACAO, correlacao).put(CHAVE_REQUISICAO, requisicaoId)
+            .contextWrite { context ->
+                context.put(CORRELATION_FIELD, correlation).put(REQUEST_FIELD, requestId)
             }
     }
 
-    private fun registrar(troca: ServerWebExchange, duracaoMs: Long) {
-        val metodo = troca.request.method.name()
-        val rota = rotaDe(troca)
-        val status = troca.response.statusCode?.value() ?: 0
+    private fun record(exchange: ServerWebExchange, durationMs: Long) {
+        val method = exchange.request.method.name()
+        val route = routeOf(exchange)
+        val status = exchange.response.statusCode?.value() ?: 0
 
         when {
-            status >= 500 -> log.error(FORMATO, metodo, rota, status, duracaoMs)
-            status >= 400 -> log.warn(FORMATO, metodo, rota, status, duracaoMs)
-            else -> log.info(FORMATO, metodo, rota, status, duracaoMs)
+            status >= 500 -> log.error(FORMAT, method, route, status, durationMs)
+            status >= 400 -> log.warn(FORMAT, method, route, status, durationMs)
+            else -> log.info(FORMAT, method, route, status, durationMs)
         }
     }
 
-    private fun ignorado(rota: String) = CAMINHOS_SEM_LOG.any { rota.startsWith(it) }
+    private fun skipped(path: String) = SKIPPED_PATHS.any { path.startsWith(it) }
 
-    private fun sanear(bruto: String?): String? = bruto
+    private fun sanitize(raw: String?): String? = raw
         ?.trim()
-        ?.take(TAMANHO_MAXIMO)
+        ?.take(MAX_LENGTH)
         ?.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
         ?.ifBlank { null }
 
-    private fun gerar(): String = UUID.randomUUID().toString()
+    private fun generate(): String = UUID.randomUUID().toString()
 
     companion object {
 
-        fun rotaDe(troca: ServerWebExchange): String =
-            troca.getAttribute<org.springframework.web.util.pattern.PathPattern>(
-                org.springframework.web.reactive.HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE,
-            )?.patternString ?: troca.request.path.value()
+        fun routeOf(exchange: ServerWebExchange): String =
+            exchange.getAttribute<PathPattern>(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)
+                ?.patternString
+                ?: exchange.request.path.value()
 
-        const val CABECALHO_CORRELACAO = "X-Correlation-Id"
-        const val CABECALHO_REQUISICAO = "X-Request-Id"
-        const val CHAVE_CORRELACAO = "correlationId"
-        const val CHAVE_REQUISICAO = "requestId"
-        private const val TAMANHO_MAXIMO = 64
-        private const val FORMATO = "requisicao concluida metodo={} rota={} status={} duracaoMs={}"
-        private val CAMINHOS_SEM_LOG = listOf("/actuator", "/v3/api-docs", "/swagger-ui", "/webjars")
+        const val CORRELATION_HEADER = "X-Correlation-Id"
+        const val REQUEST_HEADER = "X-Request-Id"
+        const val CORRELATION_FIELD = "correlationId"
+        const val REQUEST_FIELD = "requestId"
+        private const val MAX_LENGTH = 64
+        private const val FORMAT = "requisicao concluida metodo={} rota={} status={} duracaoMs={}"
+        private val SKIPPED_PATHS = listOf("/actuator", "/v3/api-docs", "/swagger-ui", "/webjars")
     }
 }

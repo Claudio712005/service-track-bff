@@ -135,11 +135,18 @@ Padrão de log do `GLOBAL-ADR-006`, com os cinco campos entre colchetes:
 [service-track-bff,<traceId>,<spanId>,<correlationId>,<requestId>]
 ```
 
-**Em reativo isso não sai de graça.** MDC é `ThreadLocal` e Reactor troca de thread entre
-operadores: a thread que atende a requisição não é a que executa a chamada HTTP de saída. A
-propagação é feita escrevendo a correlação no contexto do Reactor e registrando um
-`MdcThreadLocalAccessor` por chave no `ContextRegistry`, com
-`Hooks.enableAutomaticContextPropagation()`.
+**A fonte de verdade é o contexto do Reactor, não o MDC.** O filtro escreve a correlação com
+`contextWrite`, e quem precisa dela lê do contexto: o tradutor de erro usa `deferContextual`, e
+a propagação do cabeçalho para o serviço de destino também. **Só um arquivo no projeto encosta
+em `MDC`**, o `MdcThreadLocalAccessor` — que existe porque o logback só lê `ThreadLocal`, e é a
+ponte oficial do Micrometer entre contexto e `ThreadLocal`.
+
+Por que não baggage, que seria o caminho sem ponte nenhuma: **medido, não funciona aqui.** Com
+`management.tracing.baggage.correlation.fields` configurado e o `Slf4JBaggageEventListener` no
+classpath, o baggage fica populado dentro do filtro (`tracer.allBaggage` mostra os dois campos),
+mas o MDC chega nulo rio abaixo — o escopo de baggage é `ThreadLocal` e fecha antes de a cadeia
+executar. Duas variantes testadas, as duas vermelhas. O registro está no histórico do
+repositório.
 
 Três testes guardam isso, e o terceiro existe para o primeiro não dar falso positivo:
 
@@ -147,9 +154,22 @@ Três testes guardam isso, e o terceiro existe para o primeiro não dar falso po
 2. **o mesmo `correlationId` aparece no log do `UsuariosHttpAdapter`**, que roda na thread do
    cliente HTTP, e o `requestId` é o mesmo nas duas pontas;
 3. as threads registradas nos dois logs são **comprovadamente diferentes** — sem isso, o teste
-   2 passaria por acidente se tudo rodasse numa thread só.
+   2 passaria por acidente se tudo rodasse numa thread só;
+4. o corpo de erro carrega o `correlationId` lido do contexto, o que prova que o contexto chega
+   até o tradutor de exceção;
+5. a chamada de saída leva `X-Correlation-Id`, lido do contexto, e **não** inventa o cabeçalho
+   quando o contexto não tem correlação.
+
+A correlação **sai** nas chamadas de saída como `X-Correlation-Id`, que é o cabeçalho que
+catálogo e usuários já leem. Antes disso o BFF recebia correlação e não a repassava, então o
+rastro morria na fronteira.
 
 Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
+
+> **Não há `application.yaml` em `src/test/resources`.** Arquivo de teste com o mesmo nome
+> **substitui** o de produção em vez de complementar, e isso já esconde defeito duas vezes neste
+> projeto: a configuração real deixa de ser exercitada. Override de teste vai em
+> `@SpringBootTest(properties = [...])`.
 
 ---
 
@@ -177,7 +197,7 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 ./gradlew test
 ```
 
-15 testes, com `StepVerifier` em tudo que é reativo: casos de uso contra uma porta falsa,
+18 testes, com `StepVerifier` em tudo que é reativo: casos de uso contra uma porta falsa,
 adaptador contra uma `ExchangeFunction` de mentira — que é o que permite contar tentativas de
 retry sem subir servidor — e a propagação de correlação contra o contexto real da aplicação.
 
