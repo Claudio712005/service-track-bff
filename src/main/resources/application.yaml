@@ -3,23 +3,23 @@ spring:
     name: service-track-bff
 
 server:
-  port: ${ST_BFF_PORTA:8080}
+  port: ${ST_BFF_PORT:8080}
   shutdown: graceful
 
 servicetrack:
   usuarios:
     base-url: ${ST_BFF_USUARIOS_URL:http://localhost:8081}
-    timeout-de-conexao: ${ST_BFF_USUARIOS_TIMEOUT_CONEXAO:1s}
-    timeout-de-resposta: ${ST_BFF_USUARIOS_TIMEOUT_RESPOSTA:2s}
-  resiliencia:
-    tentativas: ${ST_BFF_TENTATIVAS:3}
-    espera-inicial: ${ST_BFF_ESPERA_INICIAL:200ms}
-    multiplicador-da-espera: ${ST_BFF_MULTIPLICADOR:2.0}
-    espera-maxima: ${ST_BFF_ESPERA_MAXIMA:2s}
-    janela-do-disjuntor: ${ST_BFF_JANELA_DISJUNTOR:20}
-    chamadas-minimas: ${ST_BFF_CHAMADAS_MINIMAS:10}
-    limite-de-falha-percentual: ${ST_BFF_LIMITE_FALHA:50}
-    espera-aberto: ${ST_BFF_ESPERA_ABERTO:10s}
+    connect-timeout: ${ST_BFF_CONNECT_TIMEOUT:1s}
+    response-timeout: ${ST_BFF_RESPONSE_TIMEOUT:2s}
+  resilience:
+    max-attempts: ${ST_BFF_MAX_ATTEMPTS:3}
+    initial-backoff: ${ST_BFF_INITIAL_BACKOFF:200ms}
+    backoff-multiplier: ${ST_BFF_BACKOFF_MULTIPLIER:2.0}
+    max-backoff: ${ST_BFF_MAX_BACKOFF:2s}
+    sliding-window-size: ${ST_BFF_SLIDING_WINDOW_SIZE:20}
+    minimum-number-of-calls: ${ST_BFF_MINIMUM_CALLS:10}
+    failure-rate-threshold: ${ST_BFF_FAILURE_RATE_THRESHOLD:50}
+    wait-duration-in-open-state: ${ST_BFF_WAIT_DURATION_IN_OPEN_STATE:10s}
 
 management:
   endpoints:
@@ -32,7 +32,7 @@ management:
         enabled: true
   tracing:
     sampling:
-      probability: ${ST_BFF_AMOSTRAGEM_DE_TRACE:1.0}
+      probability: ${ST_BFF_TRACE_SAMPLING:1.0}
   otlp:
     tracing:
       export:
@@ -44,6 +44,6 @@ management:
 logging:
   structured:
     format:
-      console: ${ST_BFF_FORMATO_DE_LOG:logstash}
+      console: ${ST_BFF_LOG_FORMAT:logstash}
   pattern:
     correlation: "[${spring.application.name:service-track-bff},%X{traceId:-},%X{spanId:-},%X{correlationId:-},%X{requestId:-}] "

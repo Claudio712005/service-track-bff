@@ -7,7 +7,8 @@ Sem banco, sem cache, sem estado. No minuto em que este repositório ganhar pers
 virou serviço de domínio com o nome errado — e a decisão de ter **um** BFF deixa de ser
 reversível.
 
-Reativo: WebFlux com coroutines, WebClient para as chamadas de saída.
+**Reativo de ponta a ponta.** `Mono` e `Flux` do controller até o WebClient, sem ponte de
+coroutine e sem nenhum `block()`. Não há `suspend` em lugar nenhum do caminho.
 
 ---
 
@@ -43,15 +44,29 @@ propósito, porque uma interface por caso de uso, com uma implementação só, �
 leitor.
 
 ```
-dominio/              modelos de leitura, sem framework
-  porta/              UsuariosPort — o contrato de saída
-  excecao/            BffException e as quatro filhas
-aplicacao/            ConsultaDeClientes, ConsultaDeMecanicos
-infraestrutura/
-  web/                controllers, GlobalExceptionHandler, CorrelacaoFilter
+domain/               modelos de leitura, sem framework
+  port/               UsuariosPort — o contrato de saída
+  exception/          BffException e as quatro filhas
+application/          ClientesService, MecanicosService
+infra/
+  web/                controllers, GlobalExceptionHandler, CorrelationFilter
   usuarios/           UsuariosHttpAdapter e os DTOs do contrato alheio
-  config/             resiliência, WebClient, propagação de contexto
+  config/             ResilienceConfig, WebClientConfig, CorrelationContextConfig
 ```
+
+### Convenção de nomes
+
+**Português é exclusivo do domínio.** A linguagem ubíqua nomeia o que o negócio reconhece —
+`Pessoa`, `Veiculo`, `ClienteVeiculos`, `TipoDeUsuario`, e as exceções de domínio. Fora do
+domínio, tudo em inglês: nome de pacote, classe de configuração, propriedade, variável de
+ambiente e sufixo técnico.
+
+| Camada | Língua | Exemplo |
+|---|---|---|
+| `domain` | português | `Pessoa`, `RecursoNaoEncontradoException` |
+| `application` | português do domínio + sufixo técnico | `ClientesService` |
+| `infra` | inglês | `ResilienceConfig`, `MdcThreadLocalAccessor`, `CorrelationFilter` |
+| properties e env | inglês | `servicetrack.resilience.max-attempts`, `ST_BFF_MAX_ATTEMPTS` |
 
 O `dominio` não conhece Spring. Trocar o transporte de saída — HTTP hoje, outra coisa amanhã —
 é escrever outro adaptador da `UsuariosPort`, sem tocar em caso de uso.
@@ -121,13 +136,18 @@ Padrão de log do `GLOBAL-ADR-006`, com os cinco campos entre colchetes:
 ```
 
 **Em reativo isso não sai de graça.** MDC é `ThreadLocal` e Reactor troca de thread entre
-operadores. A propagação é feita escrevendo a correlação no contexto do Reactor e registrando
-um `ThreadLocalAccessor` por chave no `ContextRegistry`, com
+operadores: a thread que atende a requisição não é a que executa a chamada HTTP de saída. A
+propagação é feita escrevendo a correlação no contexto do Reactor e registrando um
+`MdcThreadLocalAccessor` por chave no `ContextRegistry`, com
 `Hooks.enableAutomaticContextPropagation()`.
 
-Há teste para isso: uma requisição real atravessa a cadeia de filtros e o teste afirma que o
-`correlationId` enviado aparece no `MDCPropertyMap` da linha de log. Sem esse teste, a
-propagação quebra em silêncio na primeira mudança de versão.
+Três testes guardam isso, e o terceiro existe para o primeiro não dar falso positivo:
+
+1. o `correlationId` enviado aparece no `MDCPropertyMap` da linha de acesso do filtro;
+2. **o mesmo `correlationId` aparece no log do `UsuariosHttpAdapter`**, que roda na thread do
+   cliente HTTP, e o `requestId` é o mesmo nas duas pontas;
+3. as threads registradas nos dois logs são **comprovadamente diferentes** — sem isso, o teste
+   2 passaria por acidente se tudo rodasse numa thread só.
 
 Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 
@@ -138,15 +158,15 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 | Variável | Padrão | Para quê |
 |---|---|---|
 | `ST_BFF_USUARIOS_URL` | `http://localhost:8081` | base do serviço de usuários. Em AWS, a URL da API Gateway privada |
-| `ST_BFF_USUARIOS_TIMEOUT_CONEXAO` | `1s` | timeout de conexão |
-| `ST_BFF_USUARIOS_TIMEOUT_RESPOSTA` | `2s` | timeout de resposta |
-| `ST_BFF_TENTATIVAS` | `3` | tentativas por chamada |
-| `ST_BFF_ESPERA_INICIAL` | `200ms` | primeira espera do backoff |
-| `ST_BFF_MULTIPLICADOR` | `2.0` | fator do backoff |
-| `ST_BFF_ESPERA_MAXIMA` | `2s` | teto da espera |
-| `ST_BFF_LIMITE_FALHA` | `50` | percentual de falha que abre o disjuntor |
-| `ST_BFF_ESPERA_ABERTO` | `10s` | quanto tempo o disjuntor fica aberto |
-| `ST_BFF_FORMATO_DE_LOG` | `logstash` | vazio para texto legível no local |
+| `ST_BFF_CONNECT_TIMEOUT` | `1s` | timeout de conexão |
+| `ST_BFF_RESPONSE_TIMEOUT` | `2s` | timeout de resposta |
+| `ST_BFF_MAX_ATTEMPTS` | `3` | tentativas por chamada |
+| `ST_BFF_INITIAL_BACKOFF` | `200ms` | primeira espera do backoff |
+| `ST_BFF_BACKOFF_MULTIPLIER` | `2.0` | fator do backoff |
+| `ST_BFF_MAX_BACKOFF` | `2s` | teto da espera |
+| `ST_BFF_FAILURE_RATE_THRESHOLD` | `50` | percentual de falha que abre o disjuntor |
+| `ST_BFF_WAIT_DURATION_IN_OPEN_STATE` | `10s` | quanto tempo o disjuntor fica aberto |
+| `ST_BFF_LOG_FORMAT` | `logstash` | vazio para texto legível no local |
 
 ---
 
@@ -157,9 +177,9 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 ./gradlew test
 ```
 
-12 testes: casos de uso contra uma porta falsa, adaptador contra uma `ExchangeFunction` de
-mentira — que é o que permite contar tentativas de retry sem subir servidor — e a propagação de
-correlação contra o contexto real da aplicação.
+15 testes, com `StepVerifier` em tudo que é reativo: casos de uso contra uma porta falsa,
+adaptador contra uma `ExchangeFunction` de mentira — que é o que permite contar tentativas de
+retry sem subir servidor — e a propagação de correlação contra o contexto real da aplicação.
 
 ---
 
