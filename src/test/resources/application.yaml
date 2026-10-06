@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: service-track-bff
+
+servicetrack:
+  usuarios:
+    base-url: http://localhost:9999
+
+logging:
+  structured:
+    format:
+      console:

@@ -1,3 +1,49 @@
 spring:
   application:
     name: service-track-bff
+
+server:
+  port: ${ST_BFF_PORTA:8080}
+  shutdown: graceful
+
+servicetrack:
+  usuarios:
+    base-url: ${ST_BFF_USUARIOS_URL:http://localhost:8081}
+    timeout-de-conexao: ${ST_BFF_USUARIOS_TIMEOUT_CONEXAO:1s}
+    timeout-de-resposta: ${ST_BFF_USUARIOS_TIMEOUT_RESPOSTA:2s}
+  resiliencia:
+    tentativas: ${ST_BFF_TENTATIVAS:3}
+    espera-inicial: ${ST_BFF_ESPERA_INICIAL:200ms}
+    multiplicador-da-espera: ${ST_BFF_MULTIPLICADOR:2.0}
+    espera-maxima: ${ST_BFF_ESPERA_MAXIMA:2s}
+    janela-do-disjuntor: ${ST_BFF_JANELA_DISJUNTOR:20}
+    chamadas-minimas: ${ST_BFF_CHAMADAS_MINIMAS:10}
+    limite-de-falha-percentual: ${ST_BFF_LIMITE_FALHA:50}
+    espera-aberto: ${ST_BFF_ESPERA_ABERTO:10s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${ST_BFF_AMOSTRAGEM_DE_TRACE:1.0}
+  otlp:
+    tracing:
+      export:
+        enabled: false
+    metrics:
+      export:
+        enabled: false
+
+logging:
+  structured:
+    format:
+      console: ${ST_BFF_FORMATO_DE_LOG:logstash}
+  pattern:
+    correlation: "[${spring.application.name:service-track-bff},%X{traceId:-},%X{spanId:-},%X{correlationId:-},%X{requestId:-}] "
