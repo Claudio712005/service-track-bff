@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.infra.usuarios
+package com.clau.service_track.bff.infra.client.usuarios
 
 import java.time.Duration
 import org.springframework.boot.context.properties.ConfigurationProperties

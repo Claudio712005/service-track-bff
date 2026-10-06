@@ -1,61 +1,50 @@
-package com.clau.service_track.bff.infra.usuarios
+package com.clau.service_track.bff.infra.client.usuarios
 
-import com.clau.service_track.bff.domain.Pessoa
-import com.clau.service_track.bff.domain.TipoDeUsuario
-import com.clau.service_track.bff.domain.Veiculo
+import com.clau.service_track.bff.application.port.out.UsuariosPort
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
-import com.clau.service_track.bff.domain.port.UsuariosPort
+import com.clau.service_track.bff.domain.model.Pessoa
+import com.clau.service_track.bff.domain.model.TipoDeUsuario
+import com.clau.service_track.bff.domain.model.Veiculo
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator
 import io.github.resilience4j.reactor.retry.RetryOperator
 import io.github.resilience4j.retry.Retry
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
-import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientRequestException
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 
 @Component
+@Profile("!dev")
 class UsuariosHttpAdapter(
-    private val webClientDeUsuarios: WebClient,
+    private val cliente: UsuariosApiClient,
     private val retryDeUsuarios: Retry,
     private val disjuntorDeUsuarios: CircuitBreaker,
 ) : UsuariosPort {
 
     private val log = LoggerFactory.getLogger(UsuariosHttpAdapter::class.java)
 
-    override fun listarPorTipo(tipo: TipoDeUsuario): Flux<Pessoa> = executar(ROTA_DE_USUARIOS) {
-        webClientDeUsuarios.get()
-            .uri { construtor -> construtor.path(ROTA_DE_USUARIOS).queryParam("tipo", tipo.name).build() }
-            .retrieve()
-            .bodyToFlux(UsuarioResponse::class.java)
-    }.map(::paraPessoa)
+    override fun listarPorTipo(tipo: TipoDeUsuario): Flux<Pessoa> =
+        protegerFluxo(ROTA_DE_USUARIOS) { cliente.listarPorTipo(tipo.name) }.map(::paraPessoa)
 
-    override fun buscarPorId(id: String): Mono<Pessoa> = executarUnico("$ROTA_DE_USUARIOS/{id}") {
-        webClientDeUsuarios.get()
-            .uri("$ROTA_DE_USUARIOS/{id}", id)
-            .retrieve()
-            .bodyToMono(UsuarioResponse::class.java)
-    }.map(::paraPessoa)
+    override fun buscarPorId(id: String): Mono<Pessoa> =
+        proteger("$ROTA_DE_USUARIOS/{id}") { cliente.buscarPorId(id) }.map(::paraPessoa)
 
-    override fun listarVeiculosDoCliente(clienteId: String): Flux<Veiculo> = executar(ROTA_DE_VEICULOS) {
-        webClientDeUsuarios.get()
-            .uri { construtor -> construtor.path(ROTA_DE_VEICULOS).queryParam("clienteId", clienteId).build() }
-            .retrieve()
-            .bodyToFlux(VeiculoResponse::class.java)
-    }.map(::paraVeiculo)
+    override fun listarVeiculosDoCliente(clienteId: String): Flux<Veiculo> =
+        protegerFluxo(ROTA_DE_VEICULOS) { cliente.listarVeiculosDoCliente(clienteId) }.map(::paraVeiculo)
 
-    private fun <T : Any> executar(rota: String, chamada: () -> Flux<T>): Flux<T> =
+    private fun <T : Any> protegerFluxo(rota: String, chamada: () -> Flux<T>): Flux<T> =
         Flux.defer(chamada)
             .onErrorMap { erro -> traduzir(rota, erro) }
             .transformDeferred(CircuitBreakerOperator.of(disjuntorDeUsuarios))
             .transformDeferred(RetryOperator.of(retryDeUsuarios))
             .onErrorResume(RecursoNaoEncontradoException::class.java) { Flux.empty() }
 
-    private fun <T : Any> executarUnico(rota: String, chamada: () -> Mono<T>): Mono<T> =
+    private fun <T : Any> proteger(rota: String, chamada: () -> Mono<T>): Mono<T> =
         Mono.defer(chamada)
             .onErrorMap { erro -> traduzir(rota, erro) }
             .transformDeferred(CircuitBreakerOperator.of(disjuntorDeUsuarios))

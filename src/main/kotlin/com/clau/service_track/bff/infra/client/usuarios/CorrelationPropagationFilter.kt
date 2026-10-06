@@ -1,6 +1,6 @@
-package com.clau.service_track.bff.infra.usuarios
+package com.clau.service_track.bff.infra.client.usuarios
 
-import com.clau.service_track.bff.infra.web.CorrelationFilter
+import com.clau.service_track.bff.infra.web.filter.CorrelationFilter
 import org.springframework.web.reactive.function.client.ClientRequest
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction

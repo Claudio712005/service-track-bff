@@ -1,0 +1,15 @@
+servicetrack:
+  usuarios:
+    base-url: nao-usado-no-perfil-dev
+
+logging:
+  structured:
+    format:
+      console:
+  level:
+    com.clau.service_track.bff: DEBUG
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0

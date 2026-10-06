@@ -1,8 +1,8 @@
-package com.clau.service_track.bff.domain.port
+package com.clau.service_track.bff.application.port.out
 
-import com.clau.service_track.bff.domain.Pessoa
-import com.clau.service_track.bff.domain.TipoDeUsuario
-import com.clau.service_track.bff.domain.Veiculo
+import com.clau.service_track.bff.domain.model.Pessoa
+import com.clau.service_track.bff.domain.model.TipoDeUsuario
+import com.clau.service_track.bff.domain.model.Veiculo
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 

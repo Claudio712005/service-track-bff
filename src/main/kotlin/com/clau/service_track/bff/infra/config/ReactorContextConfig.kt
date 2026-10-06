@@ -1,7 +1,7 @@
 package com.clau.service_track.bff.infra.config
 
-import com.clau.service_track.bff.infra.web.CorrelationFilter
-import com.clau.service_track.bff.infra.web.MdcThreadLocalAccessor
+import com.clau.service_track.bff.infra.web.filter.CorrelationFilter
+import com.clau.service_track.bff.infra.web.filter.MdcThreadLocalAccessor
 import io.micrometer.context.ContextRegistry
 import jakarta.annotation.PostConstruct
 import org.springframework.context.annotation.Configuration

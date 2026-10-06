@@ -1,9 +1,9 @@
-package com.clau.service_track.bff.application
+package com.clau.service_track.bff.application.service
 
-import com.clau.service_track.bff.domain.Pessoa
-import com.clau.service_track.bff.domain.TipoDeUsuario
+import com.clau.service_track.bff.domain.model.Pessoa
+import com.clau.service_track.bff.domain.model.TipoDeUsuario
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
-import com.clau.service_track.bff.domain.port.UsuariosPort
+import com.clau.service_track.bff.application.port.out.UsuariosPort
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono

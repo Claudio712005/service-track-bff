@@ -1,11 +1,11 @@
-package com.clau.service_track.bff.application
+package com.clau.service_track.bff.application.service
 
-import com.clau.service_track.bff.domain.Pessoa
-import com.clau.service_track.bff.domain.TipoDeUsuario
-import com.clau.service_track.bff.domain.Veiculo
+import com.clau.service_track.bff.domain.model.Pessoa
+import com.clau.service_track.bff.domain.model.TipoDeUsuario
+import com.clau.service_track.bff.domain.model.Veiculo
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
-import com.clau.service_track.bff.domain.port.UsuariosPort
+import com.clau.service_track.bff.application.port.out.UsuariosPort
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import reactor.core.publisher.Flux

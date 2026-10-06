@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.infra.web
+package com.clau.service_track.bff.infra.web.error
 
 data class ErrorResponse(
     val status: Int,

@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.domain
+package com.clau.service_track.bff.domain.model
 
 data class Veiculo(
     val id: String,

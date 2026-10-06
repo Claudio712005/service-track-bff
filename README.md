@@ -21,7 +21,9 @@ coroutine e sem nenhum `block()`. Não há `suspend` em lugar nenhum do caminho.
 | `GET` | `/mecanicos` | lista mecânicos |
 | `GET` | `/mecanicos/{id}` | mecânico por identificador |
 
-Documentação em `/swagger-ui.html`, contrato em `/v3/api-docs`.
+Documentação em `/swagger-ui.html`, contrato em `/v3/api-docs`. **A documentação vive nos ports
+de entrada**, não nos controllers: quem lê o contrato lê uma interface, e o controller fica com
+uma linha por rota.
 
 **Este é o primeiro corte, de propósito.** Só a integração com `service-track-usuarios-veiculos`
 existe. Catálogo e ordens entram depois, e o motivo de começar pequeno é provar a canalização —
@@ -44,15 +46,34 @@ propósito, porque uma interface por caso de uso, com uma implementação só, �
 leitor.
 
 ```
-domain/               modelos de leitura, sem framework
-  port/               UsuariosPort — o contrato de saída
-  exception/          BffException e as quatro filhas
-application/          ClientesService, MecanicosService
+domain/
+  model/              Pessoa, Veiculo, ClienteVeiculos, TipoDeUsuario
+  exception/          BffException e as quatro filhas, um arquivo por tipo
+application/
+  port/in/            ClienteApiPort, MecanicoApiPort — o contrato HTTP e a documentação
+  port/out/           UsuariosPort — o que a aplicação precisa do mundo
+  service/            ClientesService, MecanicosService
 infra/
-  web/                controllers, GlobalExceptionHandler, CorrelationFilter
-  usuarios/           UsuariosHttpAdapter e os DTOs do contrato alheio
-  config/             ResilienceConfig, WebClientConfig, CorrelationContextConfig
+  web/controller/     ClienteController, MecanicoController — só implementam o port
+  web/error/          GlobalExceptionHandler, ErrorResponse
+  web/filter/         CorrelationFilter, MdcThreadLocalAccessor
+  client/usuarios/    UsuariosApiClient + UsuariosWebClient (transporte),
+                      UsuariosHttpAdapter (resiliência e tradução), DTOs, propriedades
+  client/fake/        UsuariosFakeAdapter — perfil dev
+  config/             OpenApi, Resilience, WebClient, ReactorContext
 ```
+
+### Três ports, três fronteiras
+
+| Port | Fronteira | Quem implementa |
+|---|---|---|
+| `ClienteApiPort`, `MecanicoApiPort` | **entrada HTTP** — rotas, status e documentação OpenAPI vivem aqui | os controllers, que ficam sem anotação de rota |
+| `UsuariosPort` | **o que a aplicação precisa**, em termos de domínio | `UsuariosHttpAdapter` em produção, `UsuariosFakeAdapter` no perfil dev |
+| `UsuariosApiClient` | **transporte HTTP puro**, em termos do contrato alheio | `UsuariosWebClient` |
+
+A separação entre `UsuariosApiClient` e `UsuariosHttpAdapter` é o que permite testar resiliência
+sem servidor: o teste do adaptador conta tentativas com um cliente falso, e o teste do
+`UsuariosWebClient` confere que a URL e o parâmetro `tipo` saem certos.
 
 ### Convenção de nomes
 
@@ -193,11 +214,29 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 ## Rodar e testar
 
 ```bash
-./gradlew bootRun        # exige o servico de usuarios em ST_BFF_USUARIOS_URL
+./gradlew bootRun --args='--spring.profiles.active=dev'   # sem dependencia nenhuma
+./gradlew bootRun                                         # exige o servico de usuarios de pe
 ./gradlew test
 ```
 
-18 testes, com `StepVerifier` em tudo que é reativo: casos de uso contra uma porta falsa,
+### Perfil `dev`: serviço de usuários mocado
+
+`UsuariosFakeAdapter` implementa a `UsuariosPort` em memória e **substitui** a saída HTTP — o
+`UsuariosHttpAdapter`, o `UsuariosWebClient` e o `WebClientConfig` são `@Profile("!dev")`, então
+em dev nada sai pela rede e a aplicação sobe sozinha. O log avisa na subida.
+
+Os dados foram escolhidos para exercitar os caminhos, não para parecerem bonitos:
+
+| Identificador | O que exercita |
+|---|---|
+| `1111...1111` | cliente com dois veículos — o caminho feliz da composição |
+| `2222...2222` | cliente cuja consulta de veículos **falha** — a degradação com `veiculosIndisponiveis: true` |
+| `3333...3333` | mecânico — responde 404 na rota de cliente, 200 na de mecânico |
+| `9999...9999` | identificador que devolve indisponibilidade — o caminho de 503 |
+
+Quatro testes rodam contra esse perfil, então o mock não apodrece em silêncio.
+
+25 testes, com `StepVerifier` em tudo que é reativo: casos de uso contra uma porta falsa,
 adaptador contra uma `ExchangeFunction` de mentira — que é o que permite contar tentativas de
 retry sem subir servidor — e a propagação de correlação contra o contexto real da aplicação.
 

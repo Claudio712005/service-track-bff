@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.infra.usuarios
+package com.clau.service_track.bff.infra.client.usuarios
 
 data class UsuarioResponse(
     val id: String,

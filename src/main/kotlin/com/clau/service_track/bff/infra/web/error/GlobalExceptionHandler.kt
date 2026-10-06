@@ -1,9 +1,10 @@
-package com.clau.service_track.bff.infra.web
+package com.clau.service_track.bff.infra.web.error
 
 import com.clau.service_track.bff.domain.exception.NaoAutorizadoException
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.RequisicaoInvalidaException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
+import com.clau.service_track.bff.infra.web.filter.CorrelationFilter
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus

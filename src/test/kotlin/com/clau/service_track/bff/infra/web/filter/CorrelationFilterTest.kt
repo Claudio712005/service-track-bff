@@ -1,4 +1,4 @@
-package com.clau.service_track.bff.infra.web
+package com.clau.service_track.bff.infra.web.filter
 
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import com.clau.service_track.bff.infra.usuarios.UsuariosHttpAdapter
+import com.clau.service_track.bff.infra.client.usuarios.UsuariosHttpAdapter
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
