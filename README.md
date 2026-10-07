@@ -211,6 +211,19 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 
 ---
 
+## Cobertura
+
+Portão no build: `./gradlew check` falha abaixo do mínimo. Medido em 06/10/2026:
+
+| Métrica | Atual | Mínimo |
+|---|---|---|
+| Linha | **88,4%** | 80% |
+| Instrução | **83,8%** | 80% |
+| Ramo | 69,6% | 60% |
+
+O mínimo de ramo é 60% porque tradução de erro tem muitos caminhos de exceção que não compensa
+exercitar um a um; linha e instrução ficam no exigido pela fase.
+
 ## Rodar e testar
 
 ```bash
