@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.web.reactive.server.WebTestClient
 
+@org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing
 @SpringBootTest(
     properties = [
         "servicetrack.usuarios.base-url=http://localhost:9999",

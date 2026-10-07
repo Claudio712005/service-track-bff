@@ -162,12 +162,21 @@ a propagação do cabeçalho para o serviço de destino também. **Só um arquiv
 em `MDC`**, o `MdcThreadLocalAccessor` — que existe porque o logback só lê `ThreadLocal`, e é a
 ponte oficial do Micrometer entre contexto e `ThreadLocal`.
 
-Por que não baggage, que seria o caminho sem ponte nenhuma: **medido, não funciona aqui.** Com
-`management.tracing.baggage.correlation.fields` configurado e o `Slf4JBaggageEventListener` no
-classpath, o baggage fica populado dentro do filtro (`tracer.allBaggage` mostra os dois campos),
-mas o MDC chega nulo rio abaixo — o escopo de baggage é `ThreadLocal` e fecha antes de a cadeia
-executar. Duas variantes testadas, as duas vermelhas. O registro está no histórico do
-repositório.
+Por que não baggage, que seria o caminho sem ponte nenhuma: **medido três vezes, não funciona
+aqui.** Com `management.tracing.baggage.correlation.fields` configurado e o
+`Slf4JBaggageEventListener` no classpath, o baggage fica populado dentro do filtro
+(`tracer.allBaggage` mostra os dois campos), mas o MDC chega nulo rio abaixo — o escopo de
+baggage é `ThreadLocal` e fecha antes de a cadeia reativa executar.
+
+As duas primeiras medições rodaram sem `@AutoConfigureTracing`, e **isso invalidaria o
+resultado**: o suporte de teste do Spring Boot desliga o export de trace, e as beans de
+propagação são `@ConditionalOnEnabledTracingExport`, então o propagador cai para
+`NoopTextMapPropagator`. Repeti o experimento **com tracing ligado de verdade** em 06/10/2026 e
+o baggage continuou não chegando ao MDC. A conclusão vale; a primeira justificativa estava
+apoiada num arnês quebrado.
+
+Os testes de correlação rodam com `@AutoConfigureTracing` justamente por isso: sem ele, o
+`traceId` e o `spanId` do padrão de log são sempre nulos e o teste não exercita tracing nenhum.
 
 Três testes guardam isso, e o terceiro existe para o primeiro não dar falso positivo:
 
