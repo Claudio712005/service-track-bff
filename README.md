@@ -315,8 +315,34 @@ Nada disto é esquecimento; é a fatia seguinte.
 - **Layout `software/`.** Os outros três serviços têm o Gradle sob `software/`; aqui ele está na
   raiz. Os moldes de Dockerfile e de esteira contam com o primeiro, então a mudança entra junto
   com eles.
-- **Dockerfile, manifestos `k8s/`, esteiras e `infra/terraform`.**
-- **Rota no API Gateway público**, que é onde o WAF e a chave de API vivem.
+- **Nada de infraestrutura.** Dockerfile, `k8s/`, esteiras, `infra/terraform` e a rota no
+  gateway público existem desde 09/10/2026.
+
+---
+
+## Como se chega até aqui
+
+O BFF é a única entrada pública, e o caminho tem três saltos:
+
+```
+cliente → API Gateway público → VPC Link → NLB interno:30083 → NodePort → pod
+```
+
+Duas coisas que surpreendem:
+
+1. **O prefixo `/bff` é removido no caminho.** O gateway expõe `/bff/{proxy+}` e entrega
+   `/clientes` ao serviço. Este serviço **não sabe** que está atrás de um prefixo, e não deve
+   passar a saber: o prefixo é decisão da borda.
+2. **A rota pública só existe quando há NLB.** Com `habilitar_api_interna` desligada, os paths
+   `/bff` desaparecem do contrato do gateway em vez de serem publicados apontando para um
+   balanceador que não existe (`IAC-ADR-034`).
+
+O gateway exige **chave de API**; o **JWT continua sendo validado aqui**. São duas barreiras com
+propósitos diferentes: a chave identifica o consumidor e aplica o plano de uso, o token
+identifica o usuário.
+
+**O BFF não entra na lista da API interna.** Aquela lista é por onde o BFF chama catálogo,
+usuários e ordens — a direção oposta. Ele só ganha um alvo no mesmo NLB.
 
 ---
 
