@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: service-track-bff
+
+resources:
+  - ../../base
+
+components:
+  - ../../componentes/nodeport
+
+images:
+  - name: servicetrack-bff
+    newName: 734564927706.dkr.ecr.us-east-1.amazonaws.com/servicetrack-prd-bff
+    newTag: placeholder
+
+patches:
+  - path: hpa-patch.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: service-track-bff-config
+    literals:
+      - ST_BFF_USUARIOS_URL=http://service-track-usuarios-veiculos.service-track-usuarios-veiculos.svc.cluster.local
+      - ST_BFF_CATALOGO_URL=http://service-track-catalogo.service-track-catalogo.svc.cluster.local
+      - ST_BFF_ORDENS_URL=http://service-track-ordens.service-track-ordens.svc.cluster.local
+      - ST_BFF_JWT_ENABLED=true
+      - ST_BFF_JWT_PUBLIC_KEY=file:/etc/servicetrack/jwt/publicKey.pem
+      - OTEL_JAVAAGENT_ENABLED=false

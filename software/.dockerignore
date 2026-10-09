@@ -1,0 +1,10 @@
+build/
+.gradle/
+.kotlin/
+.idea/
+.git/
+*.iml
+docs/
+HELP.md
+**/*.pem
+**/.env

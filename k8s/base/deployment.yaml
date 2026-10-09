@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-track-bff
+  labels:
+    app: service-track-bff
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  progressDeadlineSeconds: 300
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: service-track-bff
+  template:
+    metadata:
+      labels:
+        app: service-track-bff
+    spec:
+      containers:
+        - name: service-track-bff
+          image: servicetrack-bff:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: service-track-bff-config
+          volumeMounts:
+            - name: jwt
+              mountPath: /etc/servicetrack/jwt
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 320Mi
+            limits:
+              memory: 448Mi
+      volumes:
+        - name: jwt
+          secret:
+            secretName: service-track-bff-jwt
+            optional: true
+            items:
+              - key: publicKey.pem
+                path: publicKey.pem
