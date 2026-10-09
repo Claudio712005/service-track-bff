@@ -1,6 +1,13 @@
 servicetrack:
   usuarios:
     base-url: nao-usado-no-perfil-dev
+  catalogo:
+    base-url: nao-usado-no-perfil-dev
+  ordens:
+    base-url: nao-usado-no-perfil-dev
+  security:
+    jwt:
+      enabled: false
 
 logging:
   structured:
