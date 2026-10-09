@@ -1,27 +1,30 @@
-package com.clau.service_track.bff.infra.client.usuarios
+package com.clau.service_track.bff.infra.web.filter
 
-import com.clau.service_track.bff.infra.web.filter.CorrelationFilter
 import org.springframework.web.reactive.function.client.ClientRequest
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction
 import org.springframework.web.reactive.function.client.ExchangeFunction
 import reactor.core.publisher.Mono
+import reactor.util.context.ContextView
 
-class CorrelationPropagationFilter : ExchangeFilterFunction {
+class CabecalhosDeSaidaFilter : ExchangeFilterFunction {
 
     override fun filter(request: ClientRequest, next: ExchangeFunction): Mono<ClientResponse> =
-        Mono.deferContextual { context ->
-            if (!context.hasKey(CorrelationFilter.CORRELATION_FIELD)) {
-                return@deferContextual next.exchange(request)
-            }
+        Mono.deferContextual { context -> next.exchange(comCabecalhos(request, context)) }
 
-            val comCorrelacao = ClientRequest.from(request)
-                .header(
-                    CorrelationFilter.CORRELATION_HEADER,
-                    context.get<String>(CorrelationFilter.CORRELATION_FIELD),
-                )
-                .build()
+    private fun comCabecalhos(request: ClientRequest, context: ContextView): ClientRequest {
+        val construtor = ClientRequest.from(request)
 
-            next.exchange(comCorrelacao)
+        repassar(context, CorrelationFilter.CORRELATION_FIELD)?.let {
+            construtor.header(CorrelationFilter.CORRELATION_HEADER, it)
         }
+        repassar(context, CorrelationFilter.AUTHORIZATION_FIELD)?.let {
+            construtor.header(CorrelationFilter.AUTHORIZATION_HEADER, it)
+        }
+
+        return construtor.build()
+    }
+
+    private fun repassar(context: ContextView, campo: String): String? =
+        if (context.hasKey(campo)) context.get<String>(campo) else null
 }
