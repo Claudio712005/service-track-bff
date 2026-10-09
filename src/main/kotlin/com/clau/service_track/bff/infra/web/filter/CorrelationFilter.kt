@@ -34,7 +34,8 @@ class CorrelationFilter : WebFilter {
                 }
             }
             .contextWrite { context ->
-                context.put(CORRELATION_FIELD, correlation).put(REQUEST_FIELD, requestId)
+                val comCorrelacao = context.put(CORRELATION_FIELD, correlation).put(REQUEST_FIELD, requestId)
+                credencial(exchange)?.let { comCorrelacao.put(AUTHORIZATION_FIELD, it) } ?: comCorrelacao
             }
     }
 
@@ -60,6 +61,10 @@ class CorrelationFilter : WebFilter {
 
     private fun generate(): String = UUID.randomUUID().toString()
 
+    private fun credencial(exchange: ServerWebExchange): String? = exchange.request.headers
+        .getFirst(AUTHORIZATION_HEADER)
+        ?.takeIf { it.isNotBlank() }
+
     companion object {
 
         fun routeOf(exchange: ServerWebExchange): String =
@@ -69,7 +74,9 @@ class CorrelationFilter : WebFilter {
 
         const val CORRELATION_HEADER = "X-Correlation-Id"
         const val REQUEST_HEADER = "X-Request-Id"
+        const val AUTHORIZATION_HEADER = "Authorization"
         const val CORRELATION_FIELD = "correlationId"
+        const val AUTHORIZATION_FIELD = "authorization"
         const val REQUEST_FIELD = "requestId"
         private const val MAX_LENGTH = 64
         private const val FORMAT = "requisicao concluida metodo={} rota={} status={} duracaoMs={}"

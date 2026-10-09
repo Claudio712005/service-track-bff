@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import com.clau.service_track.bff.infra.client.usuarios.UsuariosHttpAdapter
+import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -20,6 +20,9 @@ import org.springframework.test.web.reactive.server.WebTestClient
 @SpringBootTest(
     properties = [
         "servicetrack.usuarios.base-url=http://localhost:9999",
+        "servicetrack.security.jwt.enabled=false",
+        "servicetrack.catalogo.base-url=http://localhost:9999",
+        "servicetrack.ordens.base-url=http://localhost:9999",
         "ST_BFF_LOG_FORMAT=",
     ],
 )
@@ -36,7 +39,7 @@ class CorrelationFilterTest {
 
     private val loggers = listOf(
         LoggerFactory.getLogger(CorrelationFilter::class.java) as Logger,
-        LoggerFactory.getLogger(UsuariosHttpAdapter::class.java) as Logger,
+        LoggerFactory.getLogger(ProtecaoDeChamada::class.java) as Logger,
     )
 
     @BeforeTest
@@ -89,7 +92,7 @@ class CorrelationFilterTest {
             .exchange()
             .returnResult(String::class.java)
 
-        val doAdaptador = coletor.list.firstOrNull { it.loggerName.endsWith("UsuariosHttpAdapter") }
+        val doAdaptador = coletor.list.firstOrNull { it.loggerName.endsWith("ProtecaoDeChamada") }
         assertNotNull(doAdaptador, "o adaptador nao registrou nada; o teste nao provou nada")
 
         assertEquals(

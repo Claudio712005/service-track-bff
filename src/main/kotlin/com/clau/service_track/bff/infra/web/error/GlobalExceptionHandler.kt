@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.bind.support.WebExchangeBindException
+import org.springframework.web.server.ResponseStatusException
+import org.springframework.web.server.ServerWebInputException
 import org.springframework.web.server.ServerWebExchange
 import reactor.core.publisher.Mono
 import reactor.util.context.ContextView
@@ -27,6 +30,27 @@ class GlobalExceptionHandler {
     @ExceptionHandler(RequisicaoInvalidaException::class)
     fun requisicaoInvalida(erro: RequisicaoInvalidaException, troca: ServerWebExchange) =
         montar(HttpStatus.BAD_REQUEST, erro.message, troca)
+
+    @ExceptionHandler(WebExchangeBindException::class)
+    fun corpoInvalido(erro: WebExchangeBindException, troca: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
+        val violacoes = erro.fieldErrors.map { "${it.field}: ${it.defaultMessage.orEmpty()}" }
+        return montar(
+            HttpStatus.BAD_REQUEST,
+            "Corpo da requisicao invalido: ${violacoes.joinToString("; ")}",
+            troca,
+        )
+    }
+
+    @ExceptionHandler(ServerWebInputException::class)
+    fun entradaInvalida(erro: ServerWebInputException, troca: ServerWebExchange) =
+        montar(HttpStatus.BAD_REQUEST, erro.reason ?: "Entrada da requisicao invalida", troca)
+
+    @ExceptionHandler(ResponseStatusException::class)
+    fun statusDoFramework(erro: ResponseStatusException, troca: ServerWebExchange) = montar(
+        HttpStatus.valueOf(erro.statusCode.value()),
+        erro.reason ?: "Requisicao recusada",
+        troca,
+    )
 
     @ExceptionHandler(NaoAutorizadoException::class)
     fun naoAutorizado(erro: NaoAutorizadoException, troca: ServerWebExchange) =

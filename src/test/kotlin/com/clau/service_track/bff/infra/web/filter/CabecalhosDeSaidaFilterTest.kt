@@ -1,6 +1,5 @@
-package com.clau.service_track.bff.infra.client.usuarios
+package com.clau.service_track.bff.infra.web.filter
 
-import com.clau.service_track.bff.infra.web.filter.CorrelationFilter
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -11,13 +10,13 @@ import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
 import reactor.test.StepVerifier
 
-class CorrelationPropagationFilterTest {
+class CabecalhosDeSaidaFilterTest {
 
     private var enviado: ClientRequest? = null
 
     private val cliente = WebClient.builder()
         .baseUrl("http://usuarios.test")
-        .filter(CorrelationPropagationFilter())
+        .filter(CabecalhosDeSaidaFilter())
         .exchangeFunction { requisicao ->
             enviado = requisicao
             Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build())

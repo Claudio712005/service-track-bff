@@ -11,6 +11,18 @@ servicetrack:
     base-url: ${ST_BFF_USUARIOS_URL:http://localhost:8081}
     connect-timeout: ${ST_BFF_CONNECT_TIMEOUT:1s}
     response-timeout: ${ST_BFF_RESPONSE_TIMEOUT:2s}
+  catalogo:
+    base-url: ${ST_BFF_CATALOGO_URL:http://localhost:8080}
+    connect-timeout: ${ST_BFF_CONNECT_TIMEOUT:1s}
+    response-timeout: ${ST_BFF_RESPONSE_TIMEOUT:2s}
+  ordens:
+    base-url: ${ST_BFF_ORDENS_URL:http://localhost:8082}
+    connect-timeout: ${ST_BFF_CONNECT_TIMEOUT:1s}
+    response-timeout: ${ST_BFF_ORDENS_RESPONSE_TIMEOUT:5s}
+  security:
+    jwt:
+      enabled: ${ST_BFF_JWT_ENABLED:true}
+      public-key: ${ST_BFF_JWT_PUBLIC_KEY:classpath:publicKey.pem}
   resilience:
     max-attempts: ${ST_BFF_MAX_ATTEMPTS:3}
     initial-backoff: ${ST_BFF_INITIAL_BACKOFF:200ms}

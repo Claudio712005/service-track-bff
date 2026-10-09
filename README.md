@@ -20,22 +20,57 @@ coroutine e sem nenhum `block()`. Não há `suspend` em lugar nenhum do caminho.
 | `GET` | `/clientes/{id}` | cliente **com os veículos dele**, em duas chamadas compostas |
 | `GET` | `/mecanicos` | lista mecânicos |
 | `GET` | `/mecanicos/{id}` | mecânico por identificador |
+| `GET` | `/catalogo/servicos` | serviços **ativos** que podem entrar num orçamento |
+| `GET` | `/catalogo/insumos` | insumos ativos |
+| `GET` | `/catalogo/insumos/{id}/saldo` | saldo do insumo — é o que diz se vale pedir a reserva |
+| `POST` | `/ordens` | abre uma ordem de serviço |
+| `GET` | `/ordens` | ordens de um cliente, por `clienteId` |
+| `GET` | `/ordens/{id}` | ordem **composta**: cliente, mecânico, veículo, serviços e insumos resolvidos |
+| `POST` | `/ordens/{id}/orcamento/aprovacao` | aprova o orçamento e dispara a saga de reserva |
+| `GET` | `/ordens/{id}/historico` | linha do tempo da ordem |
+| `GET` | `/ordens/{id}/saga` | progresso da transação distribuída |
 
 Documentação em `/swagger-ui.html`, contrato em `/v3/api-docs`. **A documentação vive nos ports
 de entrada**, não nos controllers: quem lê o contrato lê uma interface, e o controller fica com
 uma linha por rota.
 
-**Este é o primeiro corte, de propósito.** Só a integração com `service-track-usuarios-veiculos`
-existe. Catálogo e ordens entram depois, e o motivo de começar pequeno é provar a canalização —
-token, correlação e a API interna — antes de multiplicar rotas.
-
 ### A composição que importa
 
-`GET /clientes/{id}` faz duas chamadas ao serviço de usuários: o cliente e os veículos dele.
-Se a de veículos falhar, **a resposta sai com o cliente e `veiculosIndisponiveis: true`** em vez
-de falhar inteira. Se a do cliente falhar, a requisição falha — sem cliente não há resposta.
+`GET /ordens/{id}` é o que justifica existir um BFF. Ele faz **cinco chamadas em paralelo** —
+cliente, mecânico, veículo, serviços e insumos — e devolve a ordem com nome em vez de
+identificador.
 
-É a regra geral: degrada o que é acessório, propaga o que é essencial.
+**Serviço indisponível não derruba a resposta.** O campo vem nulo e o nome do serviço aparece em
+`parciaisIndisponiveis`, para o cliente saber que a resposta está incompleta em vez de achar que
+o dado não existe:
+
+```json
+{
+  "ordem": { "itensInsumo": [{ "insumoId": "018f30bb-…", "insumo": null, "quantidade": 2 }] },
+  "cliente": { "nome": "Joana Ferreira" },
+  "veiculo": null,
+  "parciaisIndisponiveis": ["catalogo"]
+}
+```
+
+O identificador **nunca** se perde: só o nome. Quem só precisa do id continua funcionando com o
+catálogo fora do ar.
+
+`GET /clientes/{id}` segue a mesma regra em escala menor: se a chamada de veículos falhar, a
+resposta sai com o cliente e `veiculosIndisponiveis: true`. Se a do cliente falhar, a requisição
+falha — sem cliente não há resposta.
+
+A regra geral: **degrada o que é acessório, propaga o que é essencial.** Erro que não é
+indisponibilidade sobe — 404 de uma dependência é 404 aqui, não resposta parcial.
+
+### A aprovação não avança o estado, e a documentação diz isso
+
+`POST /ordens/{id}/orcamento/aprovacao` responde com a ordem ainda em `AGUARDANDO_APROVACAO`.
+Ela só vai para `EM_EXECUCAO` quando o catálogo confirmar a reserva de todos os insumos, o que
+acontece pela fila. Quem chama acompanha em `GET /ordens/{id}/saga`.
+
+Cliente que assume "aprovei, logo está em execução" quebra — por isso está escrito no Swagger da
+rota, não só aqui.
 
 ---
 
@@ -208,8 +243,13 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 | Variável | Padrão | Para quê |
 |---|---|---|
 | `ST_BFF_USUARIOS_URL` | `http://localhost:8081` | base do serviço de usuários. Em AWS, a URL da API Gateway privada |
+| `ST_BFF_CATALOGO_URL` | `http://localhost:8080` | base do catálogo |
+| `ST_BFF_ORDENS_URL` | `http://localhost:8082` | base do serviço de ordens |
 | `ST_BFF_CONNECT_TIMEOUT` | `1s` | timeout de conexão |
 | `ST_BFF_RESPONSE_TIMEOUT` | `2s` | timeout de resposta |
+| `ST_BFF_ORDENS_RESPONSE_TIMEOUT` | `5s` | timeout de resposta do serviço de ordens, maior porque ele escreve em banco e enfileira |
+| `ST_BFF_JWT_ENABLED` | `true` | validação de JWT. **Desligar só fora de ambiente compartilhado** |
+| `ST_BFF_JWT_PUBLIC_KEY` | `classpath:publicKey.pem` | PEM da chave pública emitida junto com a Lambda |
 | `ST_BFF_MAX_ATTEMPTS` | `3` | tentativas por chamada |
 | `ST_BFF_INITIAL_BACKOFF` | `200ms` | primeira espera do backoff |
 | `ST_BFF_BACKOFF_MULTIPLIER` | `2.0` | fator do backoff |
@@ -222,16 +262,20 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 
 ## Cobertura
 
-Portão no build: `./gradlew check` falha abaixo do mínimo. Medido em 06/10/2026:
+Portão no build: `./gradlew check` falha abaixo do mínimo. Medido em 08/10/2026, com 72 testes:
 
 | Métrica | Atual | Mínimo |
 |---|---|---|
-| Linha | **88,4%** | 80% |
-| Instrução | **83,8%** | 80% |
-| Ramo | 69,6% | 60% |
+| Linha | **94,7%** | 80% |
+| Instrução | **91,5%** | 80% |
+| Ramo | 75,8% | 60% |
 
 O mínimo de ramo é 60% porque tradução de erro tem muitos caminhos de exceção que não compensa
-exercitar um a um; linha e instrução ficam no exigido pela fase.
+exercitar um a um; linha e instrução ficam acima do exigido pela fase.
+
+O portão fez o trabalho dele durante esta etapa: ao entrar a integração do catálogo a cobertura
+caiu para 61%, e o build reprovou até os testes existirem. Nenhum número aqui foi ajustado para
+caber.
 
 ## Rodar e testar
 
@@ -268,12 +312,37 @@ retry sem subir servidor — e a propagação de correlação contra o contexto 
 
 Nada disto é esquecimento; é a fatia seguinte.
 
-- **Autenticação.** O BFF ainda não valida nem repassa o JWT. Os serviços por trás validam, e a
-  decisão é que continuem validando — o BFF repassa o token, não substitui a verificação.
-- **Integração com catálogo e com ordens.**
+- **Layout `software/`.** Os outros três serviços têm o Gradle sob `software/`; aqui ele está na
+  raiz. Os moldes de Dockerfile e de esteira contam com o primeiro, então a mudança entra junto
+  com eles.
 - **Dockerfile, manifestos `k8s/`, esteiras e `infra/terraform`.**
 - **Rota no API Gateway público**, que é onde o WAF e a chave de API vivem.
-- **Portão de cobertura.** A Fase 4 exige 80% por serviço com evidência no README.
+
+---
+
+## Autenticação
+
+O BFF **valida** o JWT e **repassa** o token recebido para os serviços de trás, que continuam
+validando por conta própria. O BFF não substitui a verificação de ninguém: ele é a única entrada
+pública, e um serviço que confie cegamente em quem o chama fica vulnerável a qualquer coisa que
+entre na rede privada.
+
+| O quê | Como |
+|---|---|
+| validação | `oauth2-resource-server` reativo, RS256, chave pública em PEM — a mesma que a Lambda emite |
+| repasse | o filtro de entrada põe o `Authorization` no contexto do Reactor; o de saída o reenvia |
+| rotas abertas | só `/actuator/health`, `/actuator/info`, `/actuator/prometheus` e o contrato OpenAPI |
+
+Sonda de saúde e documentação ficam abertas porque sonda não tem token e documentação sem
+contrato visível não serve para nada.
+
+**Sem a chave, a aplicação não sobe** — e a mensagem diz o que fazer. É deliberado: subir com
+validação silenciosamente desligada é pior que não subir. Para desligar é preciso dizer
+`ST_BFF_JWT_ENABLED=false`, e aí o log avisa em `WARN` a cada start.
+
+O teste gera um par RSA em tempo de execução e assina o token: **nenhuma chave está versionada.**
+Cobre credencial ausente, assinada por outra chave, expirada, e válida. Verificado com controle
+negativo — abrindo as rotas, o teste falha.
 
 ---
 
