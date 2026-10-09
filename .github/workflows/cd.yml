@@ -1,0 +1,122 @@
+name: CD
+
+run-name: "CD bff -> ${{ inputs.env }} por @${{ github.actor }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Ambiente alvo"
+        required: true
+        type: choice
+        options: [hml, prd]
+        default: hml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cd-${{ inputs.env }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  DIRETORIO: software
+
+jobs:
+  publicar:
+    name: "1. Publicar a imagem no ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.env }}
+    outputs:
+      tag: ${{ steps.imagem.outputs.tag }}
+      repositorio: ${{ steps.ecr.outputs.repositorio }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ler o ECR do ambiente
+        id: ecr
+        run: |
+          PARAMETRO="/servicetrack/${{ inputs.env }}/bff/ecr-url"
+          if ! REPO="$(aws ssm get-parameter --name "$PARAMETRO" --query Parameter.Value --output text 2>/dev/null)"; then
+            echo "::error::$PARAMETRO nao existe. Aplique antes infra/terraform deste repositorio (env=${{ inputs.env }})."
+            exit 1
+          fi
+          echo "repositorio=$REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Login no ECR
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${{ steps.ecr.outputs.repositorio }}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Definir a tag
+        id: imagem
+        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Construir e publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DIRETORIO }}
+          push: true
+          tags: ${{ steps.ecr.outputs.repositorio }}:${{ steps.imagem.outputs.tag }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  promover:
+    name: "2. Abrir PR com a nova tag"
+    needs: publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Atualizar o overlay
+        env:
+          REPOSITORIO: ${{ needs.publicar.outputs.repositorio }}
+          TAG: ${{ needs.publicar.outputs.tag }}
+        run: |
+          ARQUIVO="k8s/overlays/${{ inputs.env }}/kustomization.yaml"
+          sed -i "s|^    newName: .*|    newName: $REPOSITORIO|" "$ARQUIVO"
+          sed -i "s|^    newTag: .*|    newTag: $TAG|" "$ARQUIVO"
+          git diff --stat
+
+      - name: Abrir o pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: deploy/${{ inputs.env }}-${{ needs.publicar.outputs.tag }}
+          commit-message: "chore(deploy): imagem ${{ needs.publicar.outputs.tag }} em ${{ inputs.env }}"
+          title: "deploy: ${{ inputs.env }} na imagem ${{ needs.publicar.outputs.tag }}"
+          body: |
+            Imagem publicada em `${{ needs.publicar.outputs.repositorio }}:${{ needs.publicar.outputs.tag }}`.
+
+            O ArgoCD sincroniza `k8s/overlays/${{ inputs.env }}` depois que este PR entrar na `main`.
+          delete-branch: true
+
+      - name: Resumo
+        run: |
+          {
+            echo "### CD de \`${{ inputs.env }}\`"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "|---|---|"
+            echo "| Imagem | \`${{ needs.publicar.outputs.repositorio }}\` |"
+            echo "| Tag | \`${{ needs.publicar.outputs.tag }}\` |"
+            echo ""
+            echo "O deploy so acontece quando o PR entrar na \`main\`: o ArgoCD le a"
+            echo "tag do overlay, nao o ECR."
+          } >> "$GITHUB_STEP_SUMMARY"

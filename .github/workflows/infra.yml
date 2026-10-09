@@ -1,0 +1,100 @@
+name: Infra
+
+run-name: "Infra ${{ inputs.acao }} em ${{ inputs.env }} por @${{ github.actor }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Ambiente alvo"
+        required: true
+        type: choice
+        options: [hml, prd]
+        default: hml
+      acao:
+        description: "O que fazer"
+        required: true
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-${{ inputs.env }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  DIRETORIO: infra/terraform
+
+jobs:
+
+  terraform:
+    name: "1. ECR do bff"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.env }}
+    defaults:
+      run:
+        working-directory: ${{ env.DIRETORIO }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Descobrir o bucket de state
+        run: |
+          CONTA="$(aws sts get-caller-identity --query Account --output text)"
+          echo "BUCKET_DE_STATE=servicetrack-tfstate-$CONTA" >> "$GITHUB_ENV"
+          echo "backend em s3://servicetrack-tfstate-$CONTA"
+
+      - name: terraform init
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config=backend/${{ inputs.env }}.hcl \
+            -backend-config="bucket=$BUCKET_DE_STATE"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        if: inputs.acao == 'plan'
+        run: terraform plan -no-color -input=false -var "ambiente=${{ inputs.env }}"
+
+      - name: terraform apply
+        if: inputs.acao == 'apply'
+        run: terraform apply -no-color -input=false -auto-approve -var "ambiente=${{ inputs.env }}"
+
+      - name: terraform destroy
+        if: inputs.acao == 'destroy'
+        run: terraform destroy -no-color -input=false -auto-approve -var "ambiente=${{ inputs.env }}"
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Infra de \`${{ inputs.env }}\` — ${{ inputs.acao }}"
+            echo ""
+            if [ "${{ inputs.acao }}" = "apply" ]; then
+              echo "| Saida | Onde ler |"
+              echo "|---|---|"
+              echo "| URL do ECR | \`/servicetrack/${{ inputs.env }}/bff/ecr-url\` |"
+              echo ""
+              echo "O BFF nao tem banco: ele nao guarda nada. A URL do ECR muda a cada"
+              echo "recriacao, entao o CD a le do SSM em tempo de uso."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
