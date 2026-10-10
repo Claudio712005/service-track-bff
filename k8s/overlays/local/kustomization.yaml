@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: service-track-bff
+
+resources:
+  - ../../base
+
+components:
+  - ../../componentes/nodeport
+
+patches:
+  - path: hpa-patch.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: service-track-bff-config
+    literals:
+      - SPRING_PROFILES_ACTIVE=dev
+      - ST_BFF_JWT_ENABLED=false
+      - OTEL_JAVAAGENT_ENABLED=false

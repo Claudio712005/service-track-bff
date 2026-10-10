@@ -1,0 +1,236 @@
+name: CI
+
+run-name: "CI de ${{ github.ref_name }} por @${{ github.actor }}"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "25"
+  DIRETORIO: software
+
+jobs:
+
+  guarda-de-segredos:
+    name: "1. Guarda de segredos"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nenhuma chave privada rastreada
+        run: |
+          RASTREADOS="$(git ls-files | grep -iE '\.(pem|key|p12|jks)$' || true)"
+          if [ -n "$RASTREADOS" ]; then
+            echo "::error::Material sensivel versionado:"
+            echo "$RASTREADOS"
+            exit 1
+          fi
+          echo "Nenhum arquivo de chave rastreado."
+
+      - name: Nenhum PEM versionado contem bloco privado
+        run: |
+          for arquivo in $(git ls-files '*.pem'); do
+            if grep -q "PRIVATE KEY" "$arquivo"; then
+              echo "::error::$arquivo contem uma chave privada"
+              exit 1
+            fi
+          done
+          echo "Nenhum PEM versionado carrega chave privada."
+
+      - name: Ferramental local nao vazou para o repositorio
+        run: |
+          VAZOU="$(git ls-files | grep -E '^(CLAUDE\.md|\.claude/|workspace/)' || true)"
+          if [ -n "$VAZOU" ]; then
+            echo "::error::Ferramental local versionado: $VAZOU"
+            exit 1
+          fi
+          echo "Ferramental local fora do repositorio."
+
+  construir:
+    name: "2. Build e testes"
+    needs: guarda-de-segredos
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ env.DIRETORIO }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compilar e testar
+        run: ./gradlew --no-daemon build
+
+      - name: Publicar relatorio de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-de-teste
+          path: ${{ env.DIRETORIO }}/build/test-results/test/
+          retention-days: 7
+
+      - name: Publicar artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: aplicacao-jar
+          path: ${{ env.DIRETORIO }}/build/libs/*-SNAPSHOT.jar
+          retention-days: 7
+
+      - name: Resumo
+        if: always()
+        run: |
+          TOTAL=$(grep -ho 'tests="[0-9]*"' build/test-results/test/*.xml 2>/dev/null \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          FALHAS=$(grep -ho 'failures="[0-9]*"' build/test-results/test/*.xml 2>/dev/null \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          {
+            echo "### Build de \`${{ github.ref_name }}\`"
+            echo ""
+            echo "| Metrica | Valor |"
+            echo "|---|---|"
+            echo "| Testes executados | $TOTAL |"
+            echo "| Falhas | $FALHAS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  imagem:
+    name: "3. Imagem de container"
+    needs: construir
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Construir a imagem sem publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DIRETORIO }}
+          push: false
+          load: true
+          tags: servicetrack-bff:${{ github.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Conferir que a imagem sobe e compoe a ordem no perfil dev
+        run: |
+          limpar() {
+            docker rm -f bff >/dev/null 2>&1 || true
+          }
+
+          docker run -d --name bff \
+            -e SPRING_PROFILES_ACTIVE=dev \
+            -e ST_BFF_JWT_ENABLED=false \
+            -p 8080:8080 \
+            servicetrack-bff:${{ github.sha }}
+
+          SUBIU=nao
+          for tentativa in $(seq 1 30); do
+            CODIGO="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo 000)"
+            if [ "$CODIGO" = "200" ]; then
+              echo "Aplicacao respondeu UP em ${tentativa}0s."
+              SUBIU=sim
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$SUBIU" != "sim" ]; then
+            echo "::error::A aplicacao nao respondeu UP em /actuator/health apos 5 minutos."
+            curl -s http://localhost:8080/actuator/health || true
+            docker logs bff | tail -n 100
+            limpar
+            exit 1
+          fi
+
+          if ! curl -sf http://localhost:8080/catalogo/servicos | grep -q "Troca de oleo"; then
+            echo "::error::O catalogo do perfil dev nao respondeu a listagem de servicos."
+            docker logs bff | tail -n 60
+            limpar
+            exit 1
+          fi
+
+          ORDEM="$(curl -s -X POST http://localhost:8080/ordens \
+            -H 'Content-Type: application/json' \
+            -d '{"motivo":"smoke de CI","clienteId":"11111111-1111-4111-8111-111111111111","mecanicoId":"33333333-3333-4333-8333-333333333333","veiculoId":"aaaaaaaa-1111-4111-8111-111111111111"}' \
+            | grep -oE '"id":"[^"]+"' | head -1 | cut -d'"' -f4)"
+
+          if [ -z "$ORDEM" ]; then
+            echo "::error::A abertura da ordem nao devolveu identificador."
+            docker logs bff | tail -n 60
+            limpar
+            exit 1
+          fi
+
+          COMPOSTA="$(curl -s "http://localhost:8080/ordens/$ORDEM")"
+          for esperado in '"nome":"Joana Ferreira"' '"sku":"OL-5W30-SYN-1L"' '"parciaisIndisponiveis":[]'; do
+            if ! printf '%s' "$COMPOSTA" | grep -qF "$esperado"; then
+              echo "::error::A composicao nao resolveu $esperado"
+              printf '%s' "$COMPOSTA" | head -c 2000
+              docker logs bff | tail -n 60
+              limpar
+              exit 1
+            fi
+          done
+
+          echo "A ordem foi composta com cliente, servico e insumo resolvidos."
+          limpar
+
+      - name: Tamanho da imagem
+        if: success()
+        run: |
+          TAMANHO="$(docker image inspect servicetrack-bff:${{ github.sha }} \
+            --format '{{.Size}}' | awk '{printf "%.0f", $1/1048576}')"
+          echo "| Imagem | ${TAMANHO} MB |" >> "$GITHUB_STEP_SUMMARY"
+
+  sonar:
+    name: "4. Analise no SonarCloud"
+    needs: construir
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.DIRETORIO }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Analisar, se o token existir
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::notice::SONAR_TOKEN ausente: analise ignorada. Crie o projeto no SonarCloud e o secret para ligar."
+            exit 0
+          fi
+          ./gradlew --no-daemon sonar
