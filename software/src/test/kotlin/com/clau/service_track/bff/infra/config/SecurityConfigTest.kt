@@ -13,6 +13,7 @@ import java.time.Instant
 import java.util.Base64
 import java.util.Date
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
@@ -33,10 +34,15 @@ class SecurityConfigTest {
         WebTestClient.bindToApplicationContext(contexto).build()
     }
 
-    private fun token(expiraEm: Instant = Instant.now().plusSeconds(300)): String {
+    private fun token(
+        expiraEm: Instant = Instant.now().plusSeconds(300),
+        emissor: String = EMISSOR_DA_LAMBDA,
+    ): String {
         val conjunto = JWTClaimsSet.Builder()
             .subject("52998224725")
-            .issuer("service-track-lambda")
+            .issuer(emissor)
+            .claim("cpf", "52998224725")
+            .claim("groups", listOf("CLIENTE"))
             .issueTime(Date.from(Instant.now().minusSeconds(10)))
             .expirationTime(Date.from(expiraEm))
             .build()
@@ -93,6 +99,39 @@ class SecurityConfigTest {
     }
 
     @Test
+    fun `credencial de outro emissor e recusada, mesmo assinada pela chave certa`() {
+        cliente.get().uri("/clientes")
+            .header("Authorization", "Bearer ${token(emissor = "outro-emissor")}")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `credencial sem emissor e recusada`() {
+        val conjunto = JWTClaimsSet.Builder()
+            .subject("52998224725")
+            .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+            .build()
+        val assinado = SignedJWT(JWSHeader(JWSAlgorithm.RS256), conjunto)
+        assinado.sign(RSASSASigner(privada))
+
+        cliente.get().uri("/clientes")
+            .header("Authorization", "Bearer ${assinado.serialize()}")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `o emissor esperado por padrao e o que a Lambda assina`() {
+        assertEquals(
+            EMISSOR_DA_LAMBDA,
+            contexto.getBean(JwtProperties::class.java).issuer,
+            "o default do BFF tem de ser o mesmo mp.jwt.verify.issuer da Lambda; " +
+                "divergir recusa todo token em silencio",
+        )
+    }
+
+    @Test
     fun `saude e contrato ficam abertos, porque sonda e documentacao nao tem token`() {
         cliente.get().uri("/actuator/health").exchange().expectStatus().isOk
         cliente.get().uri("/actuator/health/readiness").exchange().expectStatus().isOk
@@ -100,6 +139,8 @@ class SecurityConfigTest {
     }
 
     private companion object {
+
+        const val EMISSOR_DA_LAMBDA = "service-track-api"
 
         private val par = KeyPairGenerator.getInstance("RSA")
             .apply { initialize(2048) }
