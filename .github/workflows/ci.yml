@@ -49,14 +49,22 @@ jobs:
           done
           echo "Nenhum PEM versionado carrega chave privada."
 
-      - name: Ferramental local nao vazou para o repositorio
+      - name: Apenas as entradas previstas na raiz
         run: |
-          VAZOU="$(git ls-files | grep -E '^(CLAUDE\.md|\.claude/|workspace/)' || true)"
-          if [ -n "$VAZOU" ]; then
-            echo "::error::Ferramental local versionado: $VAZOU"
+          PREVISTAS=".env.exemplo .github .gitattributes .gitignore README.md db docker-compose.yml docs infra k8s observabilidade scripts software"
+          INESPERADAS=""
+          for entrada in $(git ls-files | cut -d/ -f1 | sort -u); do
+            case " $PREVISTAS " in
+              *" $entrada "*) ;;
+              *) INESPERADAS="$INESPERADAS $entrada" ;;
+            esac
+          done
+          if [ -n "$INESPERADAS" ]; then
+            echo "::error::Entrada nao prevista na raiz do repositorio:$INESPERADAS"
+            echo "Se for intencional, inclua na lista PREVISTAS desta etapa."
             exit 1
           fi
-          echo "Ferramental local fora do repositorio."
+          echo "Raiz do repositorio com as entradas previstas."
 
   construir:
     name: "2. Build e testes"
