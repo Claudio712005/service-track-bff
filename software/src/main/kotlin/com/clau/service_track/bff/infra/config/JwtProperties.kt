@@ -6,4 +6,5 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class JwtProperties(
     val enabled: Boolean = true,
     val publicKey: String = "classpath:publicKey.pem",
+    val issuer: String = "service-track-api",
 )

@@ -11,6 +11,9 @@ import org.springframework.security.config.annotation.web.reactive.EnableWebFlux
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder
 import org.springframework.security.config.web.server.ServerHttpSecurity
 import org.springframework.security.converter.RsaKeyConverters
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder
 import org.springframework.security.web.server.SecurityWebFilterChain
@@ -54,7 +57,14 @@ class SecurityConfig(
         val chave: RSAPublicKey = recurso.inputStream.use { RsaKeyConverters.x509().convert(it) }
             ?: error("Conteúdo de '${propriedades.publicKey}' não é uma chave pública X.509 válida")
 
-        return NimbusReactiveJwtDecoder.withPublicKey(chave).build()
+        val decodificador = NimbusReactiveJwtDecoder.withPublicKey(chave).build()
+        decodificador.setJwtValidator(
+            DelegatingOAuth2TokenValidator(
+                JwtTimestampValidator(),
+                JwtIssuerValidator(propriedades.issuer),
+            )
+        )
+        return decodificador
     }
 
     private companion object {
