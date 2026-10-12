@@ -1,0 +1,109 @@
+name: Segredos
+
+run-name: "Segredos de ${{ inputs.env }} por @${{ github.actor }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Ambiente alvo"
+        required: true
+        type: choice
+        options: [hml, prd]
+        default: hml
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: segredos-${{ inputs.env }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  NAMESPACE: service-track-bff
+
+jobs:
+
+  jwt:
+    name: "Chave publica do JWT no cluster"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Conferir pre-requisitos
+        id: prereq
+        run: |
+          ENV="${{ inputs.env }}"
+          CLUSTER="servicetrack-$ENV"
+
+          if ! aws ssm get-parameter --name "/servicetrack/$ENV/jwt-public" >/dev/null 2>&1; then
+            echo "::error::/servicetrack/$ENV/jwt-public nao existe."
+            echo "::error::A chave e emitida pelo service-track-aws-iac junto com a Lambda, e so"
+            echo "::error::existe com habilitar_autenticacao = true. Sem emissor nao ha token para validar."
+            exit 1
+          fi
+
+          if ! aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
+            echo "::warning::O cluster $CLUSTER nao existe ainda. Suba o EKS e rode esta esteira de novo."
+            echo "pular=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "pular=false" >> "$GITHUB_OUTPUT"
+          echo "cluster=$CLUSTER" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar o kubeconfig
+        if: steps.prereq.outputs.pular == 'false'
+        run: aws eks update-kubeconfig --name "${{ steps.prereq.outputs.cluster }}" --region "$AWS_REGION"
+
+      - name: Criar o segredo da chave publica a partir do SSM
+        if: steps.prereq.outputs.pular == 'false'
+        run: bash scripts/criar-secret-do-jwt.sh "${{ inputs.env }}"
+
+      - name: Reiniciar a aplicacao para reler a chave
+        if: steps.prereq.outputs.pular == 'false'
+        run: |
+          if kubectl get deployment service-track-bff -n "$NAMESPACE" >/dev/null 2>&1; then
+            kubectl rollout restart deployment/service-track-bff -n "$NAMESPACE"
+            kubectl rollout status deployment/service-track-bff -n "$NAMESPACE" --timeout=300s || {
+              echo "::warning::A aplicacao nao ficou pronta em 5 minutos."
+              kubectl get pods -n "$NAMESPACE"
+            }
+          else
+            echo "::notice::Deployment ainda nao existe. O ArgoCD cria quando o overlay for sincronizado."
+          fi
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Segredos de \`${{ inputs.env }}\`"
+            echo ""
+            if [ "${{ steps.prereq.outputs.pular }}" = "true" ]; then
+              echo "Cluster ausente: segredo **nao** aplicado. Suba o EKS e rode esta esteira de novo."
+            else
+              echo "| Etapa | Estado |"
+              echo "|---|---|"
+              echo "| Chave publica do JWT no cluster | aplicada a partir do SSM |"
+              echo ""
+              echo "E a mesma chave que a Lambda usa para assinar: um par por ambiente, emitido no apply."
+              echo "Recriar o ambiente gera par novo, e esta esteira tem de rodar de novo."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

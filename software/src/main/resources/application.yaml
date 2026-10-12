@@ -23,6 +23,7 @@ servicetrack:
     jwt:
       enabled: ${ST_BFF_JWT_ENABLED:true}
       public-key: ${ST_BFF_JWT_PUBLIC_KEY:classpath:publicKey.pem}
+      issuer: ${ST_BFF_JWT_ISSUER:service-track-api}
   resilience:
     max-attempts: ${ST_BFF_MAX_ATTEMPTS:3}
     initial-backoff: ${ST_BFF_INITIAL_BACKOFF:200ms}
