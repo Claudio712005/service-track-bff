@@ -334,16 +334,18 @@ Duas coisas que surpreendem:
 1. **O prefixo `/bff` é removido no caminho.** O gateway expõe `/bff/{proxy+}` e entrega
    `/clientes` ao serviço. Este serviço **não sabe** que está atrás de um prefixo, e não deve
    passar a saber: o prefixo é decisão da borda.
-2. **A rota pública só existe quando há NLB.** Com `habilitar_api_interna` desligada, os paths
-   `/bff` desaparecem do contrato do gateway em vez de serem publicados apontando para um
+2. **A rota pública só existe quando há NLB.** Com `habilitar_entrada_do_bff` desligada, os
+   paths `/bff` desaparecem do contrato do gateway em vez de serem publicados apontando para um
    balanceador que não existe (`IAC-ADR-034`).
 
 O gateway exige **chave de API**; o **JWT continua sendo validado aqui**. São duas barreiras com
 propósitos diferentes: a chave identifica o consumidor e aplica o plano de uso, o token
 identifica o usuário.
 
-**O BFF não entra na lista da API interna.** Aquela lista é por onde o BFF chama catálogo,
-usuários e ordens — a direção oposta. Ele só ganha um alvo no mesmo NLB.
+**Este é o único serviço atrás de um gateway** (`IAC-ADR-035`). A API Gateway privada que existia
+para o BFF chamar catálogo, usuários e ordens foi removida: ela nunca teve consumidor, porque o
+BFF sempre usou o DNS do cluster. Com ela saíram as rotas por microsserviço e o NodePort dos
+outros quatro serviços — o 30083 daqui é o único que sobrou.
 
 ---
 
