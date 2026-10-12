@@ -249,7 +249,8 @@ Métricas em `/actuator/prometheus`, saúde em `/actuator/health`.
 | `ST_BFF_RESPONSE_TIMEOUT` | `2s` | timeout de resposta |
 | `ST_BFF_ORDENS_RESPONSE_TIMEOUT` | `5s` | timeout de resposta do serviço de ordens, maior porque ele escreve em banco e enfileira |
 | `ST_BFF_JWT_ENABLED` | `true` | validação de JWT. **Desligar só fora de ambiente compartilhado** |
-| `ST_BFF_JWT_PUBLIC_KEY` | `classpath:publicKey.pem` | PEM da chave pública emitida junto com a Lambda |
+| `ST_BFF_JWT_PUBLIC_KEY` | `classpath:publicKey.pem` | PEM da chave pública emitida junto com a Lambda; em `hml` e `prd` vem do `Secret` `service-track-bff-jwt` |
+| `ST_BFF_JWT_ISSUER` | `service-track-api` | emissor exigido no token; tem de ser igual ao `mp.jwt.verify.issuer` da Lambda |
 | `ST_BFF_MAX_ATTEMPTS` | `3` | tentativas por chamada |
 | `ST_BFF_INITIAL_BACKOFF` | `200ms` | primeira espera do backoff |
 | `ST_BFF_BACKOFF_MULTIPLIER` | `2.0` | fator do backoff |
@@ -355,20 +356,50 @@ entre na rede privada.
 
 | O quê | Como |
 |---|---|
-| validação | `oauth2-resource-server` reativo, RS256, chave pública em PEM — a mesma que a Lambda emite |
+| validação | `oauth2-resource-server` reativo, RS256, chave pública em PEM |
+| emissor exigido | `service-track-api`, o mesmo `mp.jwt.verify.issuer` da Lambda |
 | repasse | o filtro de entrada põe o `Authorization` no contexto do Reactor; o de saída o reenvia |
 | rotas abertas | só `/actuator/health`, `/actuator/info`, `/actuator/prometheus` e o contrato OpenAPI |
 
 Sonda de saúde e documentação ficam abertas porque sonda não tem token e documentação sem
 contrato visível não serve para nada.
 
+### A chave é a da Lambda, e vem do ambiente
+
+Um par RS256 por ambiente, gerado no `apply` do `service-track-aws-iac` quando
+`habilitar_autenticacao = true`:
+
+```
+tls_private_key.jwt
+  ├── privada → SMALLRYE_JWT_SIGN_KEY, na env da Lambda          (assina)
+  └── pública → /servicetrack/<env>/jwt-public, no SSM            (valida)
+                    │
+                    └── scripts/criar-secret-do-jwt.sh
+                            → Secret service-track-bff-jwt
+                            → /etc/servicetrack/jwt/publicKey.pem
+```
+
+A esteira **Segredos** faz esse último trecho. Ela **falha alto** quando o parâmetro não existe:
+sem emissor não há token, e subir o BFF para validar o que ninguém assina não serviria.
+
+**O par morre no `destroy`.** Ambiente recriado emite par novo, e a esteira Segredos tem de rodar
+de novo — senão o BFF valida com a chave antiga e recusa todo token.
+
+### Assinatura conferindo não basta
+
+A validação exige **emissor** além da assinatura. A chave é exclusiva da Lambda, então a
+assinatura já diz muito; o emissor é o que afirma que o token saiu de `POST /autenticacao` e não
+de outro uso da mesma chave. Divergir o emissor entre os dois lados recusa **todo** token, e o
+teste `o emissor esperado por padrao e o que a Lambda assina` existe para isso não passar em
+silêncio.
+
 **Sem a chave, a aplicação não sobe** — e a mensagem diz o que fazer. É deliberado: subir com
 validação silenciosamente desligada é pior que não subir. Para desligar é preciso dizer
-`ST_BFF_JWT_ENABLED=false`, e aí o log avisa em `WARN` a cada start.
+`ST_BFF_JWT_ENABLED=false`.
 
 O teste gera um par RSA em tempo de execução e assina o token: **nenhuma chave está versionada.**
-Cobre credencial ausente, assinada por outra chave, expirada, e válida. Verificado com controle
-negativo — abrindo as rotas, o teste falha.
+Cobre credencial ausente, assinada por outra chave, expirada, de outro emissor, sem emissor, e
+válida.
 
 ---
 
