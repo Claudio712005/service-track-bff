@@ -3,7 +3,7 @@ package com.clau.service_track.bff.infra.config
 import com.clau.service_track.bff.infra.client.catalogo.CatalogoProperties
 import com.clau.service_track.bff.infra.client.ordens.OrdensProperties
 import com.clau.service_track.bff.infra.client.usuarios.UsuariosProperties
-import com.clau.service_track.bff.infra.web.filter.CabecalhosDeSaidaFilter
+import com.clau.service_track.bff.infra.web.filter.OutboundHeadersFilter
 import io.netty.channel.ChannelOption
 import io.netty.handler.timeout.ReadTimeoutHandler
 import java.util.concurrent.TimeUnit
@@ -25,31 +25,31 @@ import reactor.netty.http.client.HttpClient
 class WebClientConfig {
 
     @Bean
-    fun webClientDeUsuarios(construtor: WebClient.Builder, properties: UsuariosProperties): WebClient =
-        construir(construtor, properties)
+    fun usuariosWebClient(builder: WebClient.Builder, properties: UsuariosProperties): WebClient =
+        webClient(builder, properties)
 
     @Bean
-    fun webClientDeCatalogo(construtor: WebClient.Builder, properties: CatalogoProperties): WebClient =
-        construir(construtor, properties)
+    fun catalogoWebClient(builder: WebClient.Builder, properties: CatalogoProperties): WebClient =
+        webClient(builder, properties)
 
     @Bean
-    fun webClientDeOrdens(construtor: WebClient.Builder, properties: OrdensProperties): WebClient =
-        construir(construtor, properties)
+    fun ordensWebClient(builder: WebClient.Builder, properties: OrdensProperties): WebClient =
+        webClient(builder, properties)
 
-    private fun construir(construtor: WebClient.Builder, properties: ServiceProperties): WebClient {
-        val cliente = HttpClient.create()
+    private fun webClient(builder: WebClient.Builder, properties: ServiceProperties): WebClient {
+        val httpClient = HttpClient.create()
             .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.connectTimeout.toMillis().toInt())
             .responseTimeout(properties.responseTimeout)
-            .doOnConnected { conexao ->
-                conexao.addHandlerLast(
+            .doOnConnected { connection ->
+                connection.addHandlerLast(
                     ReadTimeoutHandler(properties.responseTimeout.toMillis(), TimeUnit.MILLISECONDS),
                 )
             }
 
-        return construtor
+        return builder
             .baseUrl(properties.baseUrl)
-            .clientConnector(ReactorClientHttpConnector(cliente))
-            .filter(CabecalhosDeSaidaFilter())
+            .clientConnector(ReactorClientHttpConnector(httpClient))
+            .filter(OutboundHeadersFilter())
             .build()
     }
 }

@@ -15,7 +15,7 @@ import reactor.core.publisher.Mono
 @Component
 @Profile("!dev")
 class UsuariosHttpAdapter(
-    private val cliente: UsuariosApiClient,
+    private val apiClient: UsuariosApiClient,
     usuariosRetry: Retry,
     usuariosCircuitBreaker: CircuitBreaker,
 ) : UsuariosPort {
@@ -23,15 +23,15 @@ class UsuariosHttpAdapter(
     private val guard = CallGuard("usuarios", usuariosRetry, usuariosCircuitBreaker)
 
     override fun listarPorTipo(tipo: TipoDeUsuario): Flux<Pessoa> =
-        guard.fluxOrEmpty(ROTA_DE_USUARIOS) { cliente.listarPorTipo(tipo.name) }.map(::paraPessoa)
+        guard.fluxOrEmpty(USUARIOS_ROUTE) { apiClient.listarPorTipo(tipo.name) }.map(::toPessoa)
 
     override fun buscarPorId(id: String): Mono<Pessoa> =
-        guard.mono("$ROTA_DE_USUARIOS/{id}") { cliente.buscarPorId(id) }.map(::paraPessoa)
+        guard.mono("$USUARIOS_ROUTE/{id}") { apiClient.buscarPorId(id) }.map(::toPessoa)
 
     override fun listarVeiculosDoCliente(clienteId: String): Flux<Veiculo> =
-        guard.fluxOrEmpty(ROTA_DE_VEICULOS) { cliente.listarVeiculosDoCliente(clienteId) }.map(::paraVeiculo)
+        guard.fluxOrEmpty(VEICULOS_ROUTE) { apiClient.listarVeiculosDoCliente(clienteId) }.map(::toVeiculo)
 
-    private fun paraPessoa(resposta: UsuarioResponse) = Pessoa(
+    private fun toPessoa(resposta: UsuarioResponse) = Pessoa(
         id = resposta.id,
         documento = resposta.documento,
         nome = resposta.nome,
@@ -39,7 +39,7 @@ class UsuariosHttpAdapter(
         tipoDeUsuario = TipoDeUsuario.valueOf(resposta.tipoDeUsuario),
     )
 
-    private fun paraVeiculo(resposta: VeiculoResponse) = Veiculo(
+    private fun toVeiculo(resposta: VeiculoResponse) = Veiculo(
         id = resposta.id,
         placa = resposta.placa,
         marca = resposta.marca,
@@ -48,7 +48,7 @@ class UsuariosHttpAdapter(
     )
 
     private companion object {
-        const val ROTA_DE_USUARIOS = "/usuarios"
-        const val ROTA_DE_VEICULOS = "/veiculos"
+        const val USUARIOS_ROUTE = "/usuarios"
+        const val VEICULOS_ROUTE = "/veiculos"
     }
 }

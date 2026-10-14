@@ -60,7 +60,7 @@ class UsuariosHttpAdapterTest {
 
         val fabrica = ResilienceFactory(properties)
         return UsuariosHttpAdapter(
-            cliente = cliente,
+            apiClient = cliente,
             usuariosRetry = fabrica.retry("usuarios"),
             usuariosCircuitBreaker = fabrica.circuitBreaker("usuarios"),
         )

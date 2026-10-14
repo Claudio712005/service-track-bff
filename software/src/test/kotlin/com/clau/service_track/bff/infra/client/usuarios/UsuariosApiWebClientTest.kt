@@ -14,7 +14,7 @@ class UsuariosWebClientTest {
 
     private var enviado: ClientRequest? = null
 
-    private fun clienteQueResponde(corpo: String) = UsuariosWebClient(
+    private fun clienteQueResponde(corpo: String) = UsuariosApiWebClient(
         WebClient.builder()
             .baseUrl("http://usuarios.test")
             .exchangeFunction { requisicao ->

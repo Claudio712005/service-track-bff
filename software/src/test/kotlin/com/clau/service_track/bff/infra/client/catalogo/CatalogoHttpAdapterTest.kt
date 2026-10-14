@@ -73,7 +73,7 @@ class CatalogoHttpAdapterTest {
 
         val fabrica = ResilienceFactory(properties)
         return CatalogoHttpAdapter(
-            cliente = cliente,
+            apiClient = cliente,
             catalogoRetry = fabrica.retry("catalogo"),
             catalogoCircuitBreaker = fabrica.circuitBreaker("catalogo"),
         )

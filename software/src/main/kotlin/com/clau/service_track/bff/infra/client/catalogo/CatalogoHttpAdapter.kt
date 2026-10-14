@@ -15,7 +15,7 @@ import reactor.core.publisher.Mono
 @Component
 @Profile("!dev")
 class CatalogoHttpAdapter(
-    private val cliente: CatalogoApiClient,
+    private val apiClient: CatalogoApiClient,
     catalogoRetry: Retry,
     catalogoCircuitBreaker: CircuitBreaker,
 ) : CatalogoPort {
@@ -23,25 +23,25 @@ class CatalogoHttpAdapter(
     private val guard = CallGuard("catalogo", catalogoRetry, catalogoCircuitBreaker)
 
     override fun listarServicos(): Flux<Servico> =
-        guard.fluxOrEmpty(ROTA_DE_SERVICOS) { cliente.listarServicos() }
+        guard.fluxOrEmpty(SERVICOS_ROUTE) { apiClient.listarServicos() }
             .filter { it.ativo }
-            .map(::paraServico)
+            .map(::toServico)
 
     override fun listarInsumos(): Flux<Insumo> =
-        guard.fluxOrEmpty(ROTA_DE_INSUMOS) { cliente.listarInsumos() }
+        guard.fluxOrEmpty(INSUMOS_ROUTE) { apiClient.listarInsumos() }
             .filter { it.ativo }
-            .map(::paraInsumo)
+            .map(::toInsumo)
 
     override fun buscarServicos(ids: Set<String>): Mono<Map<String, Servico>> = buscarEmLote(ids) { id ->
-        guard.mono("$ROTA_DE_SERVICOS/{id}") { cliente.buscarServico(id) }.map(::paraServico)
+        guard.mono("$SERVICOS_ROUTE/{id}") { apiClient.buscarServico(id) }.map(::toServico)
     }
 
     override fun buscarInsumos(ids: Set<String>): Mono<Map<String, Insumo>> = buscarEmLote(ids) { id ->
-        guard.mono("$ROTA_DE_INSUMOS/{id}") { cliente.buscarInsumo(id) }.map(::paraInsumo)
+        guard.mono("$INSUMOS_ROUTE/{id}") { apiClient.buscarInsumo(id) }.map(::toInsumo)
     }
 
     override fun saldoDe(insumoId: String): Mono<SaldoDeInsumo> =
-        guard.mono("$ROTA_DE_INSUMOS/{id}/estoque") { cliente.saldoDe(insumoId) }.map(::paraSaldo)
+        guard.mono("$INSUMOS_ROUTE/{id}/estoque") { apiClient.saldoDe(insumoId) }.map(::toSaldo)
 
     private fun <T : Any> buscarEmLote(ids: Set<String>, busca: (String) -> Mono<T>): Mono<Map<String, T>> {
         if (ids.isEmpty()) return Mono.just(emptyMap())
@@ -51,13 +51,13 @@ class CatalogoHttpAdapter(
             .collectMap({ it.first }, { it.second })
     }
 
-    private fun paraServico(resposta: ServicoResponse) = Servico(
+    private fun toServico(resposta: ServicoResponse) = Servico(
         id = resposta.id,
         nome = resposta.nome,
         valorReferencia = resposta.valorReferencia,
     )
 
-    private fun paraInsumo(resposta: InsumoResponse) = Insumo(
+    private fun toInsumo(resposta: InsumoResponse) = Insumo(
         id = resposta.id,
         sku = resposta.sku,
         nome = resposta.nome,
@@ -65,7 +65,7 @@ class CatalogoHttpAdapter(
         custo = resposta.custo,
     )
 
-    private fun paraSaldo(resposta: SaldoDeInsumoResponse) = SaldoDeInsumo(
+    private fun toSaldo(resposta: SaldoDeInsumoResponse) = SaldoDeInsumo(
         insumoId = resposta.insumoId,
         sku = resposta.sku,
         unidadeDeMedida = resposta.unidadeDeMedida,
@@ -74,8 +74,8 @@ class CatalogoHttpAdapter(
     )
 
     private companion object {
-        const val ROTA_DE_SERVICOS = "/servicos"
-        const val ROTA_DE_INSUMOS = "/insumos"
+        const val SERVICOS_ROUTE = "/servicos"
+        const val INSUMOS_ROUTE = "/insumos"
         const val CONCORRENCIA = 4
     }
 }

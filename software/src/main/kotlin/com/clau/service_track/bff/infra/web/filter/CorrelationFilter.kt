@@ -34,8 +34,8 @@ class CorrelationFilter : WebFilter {
                 }
             }
             .contextWrite { context ->
-                val comCorrelacao = context.put(CORRELATION_FIELD, correlation).put(REQUEST_FIELD, requestId)
-                credencial(exchange)?.let { comCorrelacao.put(AUTHORIZATION_FIELD, it) } ?: comCorrelacao
+                val withCorrelation = context.put(CORRELATION_FIELD, correlation).put(REQUEST_FIELD, requestId)
+                credential(exchange)?.let { withCorrelation.put(AUTHORIZATION_FIELD, it) } ?: withCorrelation
             }
     }
 
@@ -61,7 +61,7 @@ class CorrelationFilter : WebFilter {
 
     private fun generate(): String = UUID.randomUUID().toString()
 
-    private fun credencial(exchange: ServerWebExchange): String? = exchange.request.headers
+    private fun credential(exchange: ServerWebExchange): String? = exchange.request.headers
         .getFirst(AUTHORIZATION_HEADER)
         ?.takeIf { it.isNotBlank() }
 

@@ -86,7 +86,7 @@ class OrdensHttpAdapterTest {
 
         val fabrica = ResilienceFactory(properties)
         return OrdensHttpAdapter(
-            cliente = cliente,
+            apiClient = cliente,
             ordensRetry = fabrica.retry("ordens"),
             ordensCircuitBreaker = fabrica.circuitBreaker("ordens"),
         )

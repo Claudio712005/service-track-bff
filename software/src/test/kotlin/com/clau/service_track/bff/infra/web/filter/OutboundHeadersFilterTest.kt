@@ -16,7 +16,7 @@ class CabecalhosDeSaidaFilterTest {
 
     private val cliente = WebClient.builder()
         .baseUrl("http://usuarios.test")
-        .filter(CabecalhosDeSaidaFilter())
+        .filter(OutboundHeadersFilter())
         .exchangeFunction { requisicao ->
             enviado = requisicao
             Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build())
