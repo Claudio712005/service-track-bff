@@ -8,43 +8,43 @@ import reactor.core.publisher.Mono
 
 @Component
 @Profile("!dev")
-class CatalogoWebClient(
-    private val webClientDeCatalogo: WebClient,
+class CatalogoApiWebClient(
+    private val catalogoWebClient: WebClient,
 ) : CatalogoApiClient {
 
-    override fun listarServicos(): Flux<ServicoResponse> = webClientDeCatalogo.get()
-        .uri(ROTA_DE_SERVICOS)
+    override fun listarServicos(): Flux<ServicoResponse> = catalogoWebClient.get()
+        .uri(SERVICOS_ROUTE)
         .header(CABECALHO_DE_VERSAO, VERSAO)
         .retrieve()
         .bodyToFlux(ServicoResponse::class.java)
 
-    override fun listarInsumos(): Flux<InsumoResponse> = webClientDeCatalogo.get()
-        .uri(ROTA_DE_INSUMOS)
+    override fun listarInsumos(): Flux<InsumoResponse> = catalogoWebClient.get()
+        .uri(INSUMOS_ROUTE)
         .header(CABECALHO_DE_VERSAO, VERSAO)
         .retrieve()
         .bodyToFlux(InsumoResponse::class.java)
 
-    override fun buscarServico(id: String): Mono<ServicoResponse> = webClientDeCatalogo.get()
-        .uri("$ROTA_DE_SERVICOS/{id}", id)
+    override fun buscarServico(id: String): Mono<ServicoResponse> = catalogoWebClient.get()
+        .uri("$SERVICOS_ROUTE/{id}", id)
         .header(CABECALHO_DE_VERSAO, VERSAO)
         .retrieve()
         .bodyToMono(ServicoResponse::class.java)
 
-    override fun buscarInsumo(id: String): Mono<InsumoResponse> = webClientDeCatalogo.get()
-        .uri("$ROTA_DE_INSUMOS/{id}", id)
+    override fun buscarInsumo(id: String): Mono<InsumoResponse> = catalogoWebClient.get()
+        .uri("$INSUMOS_ROUTE/{id}", id)
         .header(CABECALHO_DE_VERSAO, VERSAO)
         .retrieve()
         .bodyToMono(InsumoResponse::class.java)
 
-    override fun saldoDe(insumoId: String): Mono<SaldoDeInsumoResponse> = webClientDeCatalogo.get()
-        .uri("$ROTA_DE_INSUMOS/{id}/estoque", insumoId)
+    override fun saldoDe(insumoId: String): Mono<SaldoDeInsumoResponse> = catalogoWebClient.get()
+        .uri("$INSUMOS_ROUTE/{id}/estoque", insumoId)
         .header(CABECALHO_DE_VERSAO, VERSAO)
         .retrieve()
         .bodyToMono(SaldoDeInsumoResponse::class.java)
 
     private companion object {
-        const val ROTA_DE_SERVICOS = "/servicos"
-        const val ROTA_DE_INSUMOS = "/insumos"
+        const val SERVICOS_ROUTE = "/servicos"
+        const val INSUMOS_ROUTE = "/insumos"
         const val CABECALHO_DE_VERSAO = "X-API-Version"
         const val VERSAO = "1"
     }

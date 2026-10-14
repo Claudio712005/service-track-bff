@@ -8,25 +8,25 @@ import reactor.core.publisher.Mono
 
 @Component
 @Profile("!dev")
-class OrdensWebClient(
-    private val webClientDeOrdens: WebClient,
+class OrdensApiWebClient(
+    private val ordensWebClient: WebClient,
 ) : OrdensApiClient {
 
-    override fun abrir(requisicao: AbrirOrdemRequest): Mono<OrdemServicoResponse> = webClientDeOrdens.post()
-        .uri(ROTA)
+    override fun abrir(requisicao: AbrirOrdemRequest): Mono<OrdemServicoResponse> = ordensWebClient.post()
+        .uri(ROUTE)
         .bodyValue(requisicao)
         .retrieve()
         .bodyToMono(OrdemServicoResponse::class.java)
 
-    override fun buscarPorId(id: String): Mono<OrdemServicoResponse> = webClientDeOrdens.get()
-        .uri("$ROTA/{id}", id)
+    override fun buscarPorId(id: String): Mono<OrdemServicoResponse> = ordensWebClient.get()
+        .uri("$ROUTE/{id}", id)
         .retrieve()
         .bodyToMono(OrdemServicoResponse::class.java)
 
     override fun listarDoCliente(clienteId: String, tamanho: Int): Mono<PaginaDeOrdensResponse> =
-        webClientDeOrdens.get()
+        ordensWebClient.get()
             .uri { construtor ->
-                construtor.path(ROTA)
+                construtor.path(ROUTE)
                     .queryParam("clienteId", clienteId)
                     .queryParam("tamanho", tamanho)
                     .build()
@@ -34,22 +34,22 @@ class OrdensWebClient(
             .retrieve()
             .bodyToMono(PaginaDeOrdensResponse::class.java)
 
-    override fun historicoDe(id: String): Flux<FatoDaOrdemResponse> = webClientDeOrdens.get()
-        .uri("$ROTA/{id}/historico", id)
+    override fun historicoDe(id: String): Flux<FatoDaOrdemResponse> = ordensWebClient.get()
+        .uri("$ROUTE/{id}/historico", id)
         .retrieve()
         .bodyToFlux(FatoDaOrdemResponse::class.java)
 
-    override fun sagasDe(id: String): Flux<SagaResponse> = webClientDeOrdens.get()
-        .uri("$ROTA/{id}/saga", id)
+    override fun sagasDe(id: String): Flux<SagaResponse> = ordensWebClient.get()
+        .uri("$ROUTE/{id}/saga", id)
         .retrieve()
         .bodyToFlux(SagaResponse::class.java)
 
-    override fun aprovarOrcamento(id: String): Mono<OrdemServicoResponse> = webClientDeOrdens.post()
-        .uri("$ROTA/{id}/orcamento/aprovacao", id)
+    override fun aprovarOrcamento(id: String): Mono<OrdemServicoResponse> = ordensWebClient.post()
+        .uri("$ROUTE/{id}/orcamento/aprovacao", id)
         .retrieve()
         .bodyToMono(OrdemServicoResponse::class.java)
 
     private companion object {
-        const val ROTA = "/ordens"
+        const val ROUTE = "/ordens"
     }
 }

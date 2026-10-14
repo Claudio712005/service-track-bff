@@ -24,75 +24,75 @@ class GlobalExceptionHandler {
     private val log = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
 
     @ExceptionHandler(RecursoNaoEncontradoException::class)
-    fun naoEncontrado(erro: RecursoNaoEncontradoException, troca: ServerWebExchange) =
-        montar(HttpStatus.NOT_FOUND, erro.message, troca)
+    fun notFound(error: RecursoNaoEncontradoException, exchange: ServerWebExchange) =
+        build(HttpStatus.NOT_FOUND, error.message, exchange)
 
     @ExceptionHandler(RequisicaoInvalidaException::class)
-    fun requisicaoInvalida(erro: RequisicaoInvalidaException, troca: ServerWebExchange) =
-        montar(HttpStatus.BAD_REQUEST, erro.message, troca)
+    fun invalidRequest(error: RequisicaoInvalidaException, exchange: ServerWebExchange) =
+        build(HttpStatus.BAD_REQUEST, error.message, exchange)
 
     @ExceptionHandler(WebExchangeBindException::class)
-    fun corpoInvalido(erro: WebExchangeBindException, troca: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
-        val violacoes = erro.fieldErrors.map { "${it.field}: ${it.defaultMessage.orEmpty()}" }
-        return montar(
+    fun invalidBody(error: WebExchangeBindException, exchange: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
+        val violations = error.fieldErrors.map { "${it.field}: ${it.defaultMessage.orEmpty()}" }
+        return build(
             HttpStatus.BAD_REQUEST,
-            "Corpo da requisicao invalido: ${violacoes.joinToString("; ")}",
-            troca,
+            "Corpo da requisicao invalido: ${violations.joinToString("; ")}",
+            exchange,
         )
     }
 
     @ExceptionHandler(ServerWebInputException::class)
-    fun entradaInvalida(erro: ServerWebInputException, troca: ServerWebExchange) =
-        montar(HttpStatus.BAD_REQUEST, erro.reason ?: "Entrada da requisicao invalida", troca)
+    fun invalidInput(error: ServerWebInputException, exchange: ServerWebExchange) =
+        build(HttpStatus.BAD_REQUEST, error.reason ?: "Entrada da requisicao invalida", exchange)
 
     @ExceptionHandler(ResponseStatusException::class)
-    fun statusDoFramework(erro: ResponseStatusException, troca: ServerWebExchange) = montar(
-        HttpStatus.valueOf(erro.statusCode.value()),
-        erro.reason ?: "Requisicao recusada",
-        troca,
+    fun frameworkStatus(error: ResponseStatusException, exchange: ServerWebExchange) = build(
+        HttpStatus.valueOf(error.statusCode.value()),
+        error.reason ?: "Requisicao recusada",
+        exchange,
     )
 
     @ExceptionHandler(NaoAutorizadoException::class)
-    fun naoAutorizado(erro: NaoAutorizadoException, troca: ServerWebExchange) =
-        montar(HttpStatus.UNAUTHORIZED, erro.message, troca)
+    fun unauthorized(error: NaoAutorizadoException, exchange: ServerWebExchange) =
+        build(HttpStatus.UNAUTHORIZED, error.message, exchange)
 
     @ExceptionHandler(ServicoIndisponivelException::class)
-    fun servicoIndisponivel(erro: ServicoIndisponivelException, troca: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
-        log.error("dependencia indisponivel servico={} rota={}", erro.servico, troca.request.path.value())
-        return montar(HttpStatus.SERVICE_UNAVAILABLE, erro.message, troca)
+    fun serviceUnavailable(error: ServicoIndisponivelException, exchange: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
+        log.error("dependencia indisponivel servico={} rota={}", error.servico, exchange.request.path.value())
+        return build(HttpStatus.SERVICE_UNAVAILABLE, error.message, exchange)
     }
 
     @ExceptionHandler(CallNotPermittedException::class)
-    fun disjuntorAberto(erro: CallNotPermittedException, troca: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
-        log.error("disjuntor aberto, chamada recusada sem tentar disjuntor={}", erro.causingCircuitBreakerName)
-        return montar(HttpStatus.SERVICE_UNAVAILABLE, "Dependencia indisponivel, tente novamente em instantes", troca)
+    fun circuitBreakerOpen(error: CallNotPermittedException, exchange: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
+        log.error("disjuntor aberto, chamada recusada sem tentar disjuntor={}", error.causingCircuitBreakerName)
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "Dependencia indisponivel, tente novamente em instantes", exchange)
     }
 
     @ExceptionHandler(Exception::class)
-    fun naoPrevisto(erro: Exception, troca: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
-        log.error("falha nao prevista rota={}", troca.request.path.value(), erro)
-        return montar(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno", troca)
+    fun unexpected(error: Exception, exchange: ServerWebExchange): Mono<ResponseEntity<ErrorResponse>> {
+        log.error("falha nao prevista rota={}", exchange.request.path.value(), error)
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno", exchange)
     }
 
-    private fun montar(
+    private fun build(
         status: HttpStatus,
-        mensagem: String?,
-        troca: ServerWebExchange,
-    ): Mono<ResponseEntity<ErrorResponse>> = Mono.deferContextual { contexto ->
+        message: String?,
+        exchange: ServerWebExchange,
+    ): Mono<ResponseEntity<ErrorResponse>> = Mono.deferContextual { context ->
         Mono.just(
             ResponseEntity.status(status).body(
                 ErrorResponse(
                     status = status.value(),
                     erro = status.reasonPhrase,
-                    mensagem = mensagem ?: status.reasonPhrase,
-                    rota = troca.request.path.value(),
-                    correlationId = doContexto(contexto, CorrelationFilter.CORRELATION_FIELD),
-                    requestId = doContexto(contexto, CorrelationFilter.REQUEST_FIELD),
+                    mensagem = message ?: status.reasonPhrase,
+                    rota = exchange.request.path.value(),
+                    correlationId = fromContext(context, CorrelationFilter.CORRELATION_FIELD),
+                    requestId = fromContext(context, CorrelationFilter.REQUEST_FIELD),
                 ),
             ),
         )
     }
 
-    private fun doContexto(contexto: ContextView, campo: String): String? =
-        if (contexto.hasKey(campo)) contexto.get(campo) else null
+    private fun fromContext(context: ContextView, field: String): String? =
+        if (context.hasKey(field)) context.get(field) else null
 }

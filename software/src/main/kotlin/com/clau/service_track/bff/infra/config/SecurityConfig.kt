@@ -28,7 +28,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain
     matchIfMissing = true,
 )
 class SecurityConfig(
-    private val propriedades: JwtProperties,
+    private val properties: JwtProperties,
     private val resourceLoader: ResourceLoader,
 ) {
 
@@ -47,21 +47,21 @@ class SecurityConfig(
 
     @Bean
     fun jwtDecoder(): ReactiveJwtDecoder {
-        val recurso = resourceLoader.getResource(propriedades.publicKey)
+        val recurso = resourceLoader.getResource(properties.publicKey)
         require(recurso.exists()) {
-            "Chave pública JWT não encontrada em '${propriedades.publicKey}'. " +
+            "Chave pública JWT não encontrada em '${properties.publicKey}'. " +
                 "Aponte servicetrack.security.jwt.public-key para o PEM emitido junto com a Lambda, " +
                 "ou desligue a validação com servicetrack.security.jwt.enabled=false fora de produção."
         }
 
         val chave: RSAPublicKey = recurso.inputStream.use { RsaKeyConverters.x509().convert(it) }
-            ?: error("Conteúdo de '${propriedades.publicKey}' não é uma chave pública X.509 válida")
+            ?: error("Conteúdo de '${properties.publicKey}' não é uma chave pública X.509 válida")
 
         val decodificador = NimbusReactiveJwtDecoder.withPublicKey(chave).build()
         decodificador.setJwtValidator(
             DelegatingOAuth2TokenValidator(
                 JwtTimestampValidator(),
-                JwtIssuerValidator(propriedades.issuer),
+                JwtIssuerValidator(properties.issuer),
             )
         )
         return decodificador

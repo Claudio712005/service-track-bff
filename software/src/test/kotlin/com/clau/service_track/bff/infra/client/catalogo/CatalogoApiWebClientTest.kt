@@ -17,7 +17,7 @@ class CatalogoWebClientTest {
 
     private val requisicoes = CopyOnWriteArrayList<ClientRequest>()
 
-    private fun clienteQueResponde(corpo: String): CatalogoWebClient {
+    private fun clienteQueResponde(corpo: String): CatalogoApiWebClient {
         val troca = ExchangeFunction { requisicao ->
             requisicoes.add(requisicao)
             Mono.just(
@@ -28,7 +28,7 @@ class CatalogoWebClientTest {
             )
         }
 
-        return CatalogoWebClient(
+        return CatalogoApiWebClient(
             WebClient.builder().baseUrl("http://catalogo.test").exchangeFunction(troca).build()
         )
     }

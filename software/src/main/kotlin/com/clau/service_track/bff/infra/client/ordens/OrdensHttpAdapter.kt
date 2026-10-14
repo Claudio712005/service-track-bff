@@ -10,7 +10,7 @@ import com.clau.service_track.bff.domain.model.PassoDaSaga
 import com.clau.service_track.bff.domain.model.PedidoDeAbertura
 import com.clau.service_track.bff.domain.model.Saga
 import com.clau.service_track.bff.domain.model.StatusDaOrdem
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.retry.Retry
 import org.springframework.context.annotation.Profile
@@ -21,34 +21,34 @@ import reactor.core.publisher.Mono
 @Component
 @Profile("!dev")
 class OrdensHttpAdapter(
-    private val cliente: OrdensApiClient,
-    retryDeOrdens: Retry,
-    disjuntorDeOrdens: CircuitBreaker,
+    private val apiClient: OrdensApiClient,
+    ordensRetry: Retry,
+    ordensCircuitBreaker: CircuitBreaker,
 ) : OrdensPort {
 
-    private val protecao = ProtecaoDeChamada("ordens", retryDeOrdens, disjuntorDeOrdens)
+    private val guard = CallGuard("ordens", ordensRetry, ordensCircuitBreaker)
 
     override fun abrir(pedido: PedidoDeAbertura): Mono<OrdemServico> =
-        protecao.mono(ROTA) { cliente.abrir(paraRequisicao(pedido)) }.map(::paraOrdem)
+        guard.mono(ROUTE) { apiClient.abrir(toRequest(pedido)) }.map(::toOrdem)
 
     override fun buscarPorId(id: String): Mono<OrdemServico> =
-        protecao.mono("$ROTA/{id}") { cliente.buscarPorId(id) }.map(::paraOrdem)
+        guard.mono("$ROUTE/{id}") { apiClient.buscarPorId(id) }.map(::toOrdem)
 
     override fun listarDoCliente(clienteId: String): Flux<OrdemServico> =
-        protecao.mono(ROTA) { cliente.listarDoCliente(clienteId, TAMANHO_DA_PAGINA) }
+        guard.mono(ROUTE) { apiClient.listarDoCliente(clienteId, PAGE_SIZE) }
             .flatMapIterable { pagina -> pagina.conteudo }
-            .map(::paraOrdem)
+            .map(::toOrdem)
 
     override fun historicoDe(id: String): Flux<FatoDaOrdem> =
-        protecao.flux("$ROTA/{id}/historico") { cliente.historicoDe(id) }.map(::paraFato)
+        guard.flux("$ROUTE/{id}/historico") { apiClient.historicoDe(id) }.map(::toFato)
 
     override fun sagasDe(id: String): Flux<Saga> =
-        protecao.fluxTolerante("$ROTA/{id}/saga") { cliente.sagasDe(id) }.map(::paraSaga)
+        guard.fluxOrEmpty("$ROUTE/{id}/saga") { apiClient.sagasDe(id) }.map(::toSaga)
 
     override fun aprovarOrcamento(id: String): Mono<OrdemServico> =
-        protecao.mono("$ROTA/{id}/orcamento/aprovacao") { cliente.aprovarOrcamento(id) }.map(::paraOrdem)
+        guard.mono("$ROUTE/{id}/orcamento/aprovacao") { apiClient.aprovarOrcamento(id) }.map(::toOrdem)
 
-    private fun paraRequisicao(pedido: PedidoDeAbertura) = AbrirOrdemRequest(
+    private fun toRequest(pedido: PedidoDeAbertura) = AbrirOrdemRequest(
         motivo = pedido.motivo,
         clienteId = pedido.clienteId,
         mecanicoId = pedido.mecanicoId,
@@ -57,7 +57,7 @@ class OrdensHttpAdapter(
         prazoConclusao = pedido.prazoConclusao,
     )
 
-    private fun paraOrdem(resposta: OrdemServicoResponse) = OrdemServico(
+    private fun toOrdem(resposta: OrdemServicoResponse) = OrdemServico(
         id = resposta.id,
         motivo = resposta.motivo,
         observacao = resposta.observacao,
@@ -67,8 +67,8 @@ class OrdensHttpAdapter(
         veiculoId = resposta.veiculoId,
         prazoConclusao = resposta.prazoConclusao,
         orcamento = resposta.orcamento?.let(::paraOrcamento),
-        itensServico = resposta.itensServico.map(::paraItemDeServico),
-        itensInsumo = resposta.itensInsumo.map(::paraItemDeInsumo),
+        itensServico = resposta.itensServico.map(::toItemDeServico),
+        itensInsumo = resposta.itensInsumo.map(::toItemDeInsumo),
         dataCriacao = resposta.dataCriacao,
         dataAtualizacao = resposta.dataAtualizacao,
     )
@@ -81,7 +81,7 @@ class OrdensHttpAdapter(
         aprovado = resposta.aprovado,
     )
 
-    private fun paraItemDeServico(resposta: ItemDeServicoResponse) = ItemDeServico(
+    private fun toItemDeServico(resposta: ItemDeServicoResponse) = ItemDeServico(
         id = resposta.id,
         servicoId = resposta.servicoId,
         servico = null,
@@ -89,14 +89,14 @@ class OrdensHttpAdapter(
         feito = resposta.feito,
     )
 
-    private fun paraItemDeInsumo(resposta: ItemDeInsumoResponse) = ItemDeInsumo(
+    private fun toItemDeInsumo(resposta: ItemDeInsumoResponse) = ItemDeInsumo(
         id = resposta.id,
         insumoId = resposta.insumoId,
         insumo = null,
         quantidade = resposta.quantidade,
     )
 
-    private fun paraFato(resposta: FatoDaOrdemResponse) = FatoDaOrdem(
+    private fun toFato(resposta: FatoDaOrdemResponse) = FatoDaOrdem(
         statusAnterior = resposta.statusAnterior,
         statusNovo = resposta.statusNovo,
         transicionou = resposta.transicionou,
@@ -104,7 +104,7 @@ class OrdensHttpAdapter(
         ocorridoEm = resposta.ocorridoEm,
     )
 
-    private fun paraSaga(resposta: SagaResponse) = Saga(
+    private fun toSaga(resposta: SagaResponse) = Saga(
         tipo = resposta.tipo,
         situacao = resposta.situacao,
         etapa = resposta.etapa,
@@ -121,7 +121,7 @@ class OrdensHttpAdapter(
     )
 
     private companion object {
-        const val ROTA = "/ordens"
-        const val TAMANHO_DA_PAGINA = 50
+        const val ROUTE = "/ordens"
+        const val PAGE_SIZE = 50
     }
 }

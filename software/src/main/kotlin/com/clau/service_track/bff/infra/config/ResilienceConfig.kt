@@ -11,23 +11,23 @@ import org.springframework.context.annotation.Configuration
 class ResilienceConfig {
 
     @Bean
-    fun fabricaDeResiliencia(properties: ResilienceProperties) = FabricaDeResiliencia(properties)
+    fun resilienceFactory(properties: ResilienceProperties) = ResilienceFactory(properties)
 
     @Bean
-    fun retryDeUsuarios(fabrica: FabricaDeResiliencia): Retry = fabrica.retry("usuarios")
+    fun usuariosRetry(factory: ResilienceFactory): Retry = factory.retry("usuarios")
 
     @Bean
-    fun disjuntorDeUsuarios(fabrica: FabricaDeResiliencia): CircuitBreaker = fabrica.circuitBreaker("usuarios")
+    fun usuariosCircuitBreaker(factory: ResilienceFactory): CircuitBreaker = factory.circuitBreaker("usuarios")
 
     @Bean
-    fun retryDeCatalogo(fabrica: FabricaDeResiliencia): Retry = fabrica.retry("catalogo")
+    fun catalogoRetry(factory: ResilienceFactory): Retry = factory.retry("catalogo")
 
     @Bean
-    fun disjuntorDeCatalogo(fabrica: FabricaDeResiliencia): CircuitBreaker = fabrica.circuitBreaker("catalogo")
+    fun catalogoCircuitBreaker(factory: ResilienceFactory): CircuitBreaker = factory.circuitBreaker("catalogo")
 
     @Bean
-    fun retryDeOrdens(fabrica: FabricaDeResiliencia): Retry = fabrica.retry("ordens")
+    fun ordensRetry(factory: ResilienceFactory): Retry = factory.retry("ordens")
 
     @Bean
-    fun disjuntorDeOrdens(fabrica: FabricaDeResiliencia): CircuitBreaker = fabrica.circuitBreaker("ordens")
+    fun ordensCircuitBreaker(factory: ResilienceFactory): CircuitBreaker = factory.circuitBreaker("ordens")
 }

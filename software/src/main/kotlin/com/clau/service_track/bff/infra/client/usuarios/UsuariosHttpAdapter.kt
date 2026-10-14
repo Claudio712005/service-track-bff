@@ -4,7 +4,7 @@ import com.clau.service_track.bff.application.port.out.UsuariosPort
 import com.clau.service_track.bff.domain.model.Pessoa
 import com.clau.service_track.bff.domain.model.TipoDeUsuario
 import com.clau.service_track.bff.domain.model.Veiculo
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.retry.Retry
 import org.springframework.context.annotation.Profile
@@ -15,23 +15,23 @@ import reactor.core.publisher.Mono
 @Component
 @Profile("!dev")
 class UsuariosHttpAdapter(
-    private val cliente: UsuariosApiClient,
-    retryDeUsuarios: Retry,
-    disjuntorDeUsuarios: CircuitBreaker,
+    private val apiClient: UsuariosApiClient,
+    usuariosRetry: Retry,
+    usuariosCircuitBreaker: CircuitBreaker,
 ) : UsuariosPort {
 
-    private val protecao = ProtecaoDeChamada("usuarios", retryDeUsuarios, disjuntorDeUsuarios)
+    private val guard = CallGuard("usuarios", usuariosRetry, usuariosCircuitBreaker)
 
     override fun listarPorTipo(tipo: TipoDeUsuario): Flux<Pessoa> =
-        protecao.fluxTolerante(ROTA_DE_USUARIOS) { cliente.listarPorTipo(tipo.name) }.map(::paraPessoa)
+        guard.fluxOrEmpty(USUARIOS_ROUTE) { apiClient.listarPorTipo(tipo.name) }.map(::toPessoa)
 
     override fun buscarPorId(id: String): Mono<Pessoa> =
-        protecao.mono("$ROTA_DE_USUARIOS/{id}") { cliente.buscarPorId(id) }.map(::paraPessoa)
+        guard.mono("$USUARIOS_ROUTE/{id}") { apiClient.buscarPorId(id) }.map(::toPessoa)
 
     override fun listarVeiculosDoCliente(clienteId: String): Flux<Veiculo> =
-        protecao.fluxTolerante(ROTA_DE_VEICULOS) { cliente.listarVeiculosDoCliente(clienteId) }.map(::paraVeiculo)
+        guard.fluxOrEmpty(VEICULOS_ROUTE) { apiClient.listarVeiculosDoCliente(clienteId) }.map(::toVeiculo)
 
-    private fun paraPessoa(resposta: UsuarioResponse) = Pessoa(
+    private fun toPessoa(resposta: UsuarioResponse) = Pessoa(
         id = resposta.id,
         documento = resposta.documento,
         nome = resposta.nome,
@@ -39,7 +39,7 @@ class UsuariosHttpAdapter(
         tipoDeUsuario = TipoDeUsuario.valueOf(resposta.tipoDeUsuario),
     )
 
-    private fun paraVeiculo(resposta: VeiculoResponse) = Veiculo(
+    private fun toVeiculo(resposta: VeiculoResponse) = Veiculo(
         id = resposta.id,
         placa = resposta.placa,
         marca = resposta.marca,
@@ -48,7 +48,7 @@ class UsuariosHttpAdapter(
     )
 
     private companion object {
-        const val ROTA_DE_USUARIOS = "/usuarios"
-        const val ROTA_DE_VEICULOS = "/veiculos"
+        const val USUARIOS_ROUTE = "/usuarios"
+        const val VEICULOS_ROUTE = "/veiculos"
     }
 }
