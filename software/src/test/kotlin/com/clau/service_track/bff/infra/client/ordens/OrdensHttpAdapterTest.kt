@@ -4,7 +4,7 @@ import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
 import com.clau.service_track.bff.domain.model.PedidoDeAbertura
 import com.clau.service_track.bff.domain.model.StatusDaOrdem
-import com.clau.service_track.bff.infra.config.FabricaDeResiliencia
+import com.clau.service_track.bff.infra.config.ResilienceFactory
 import com.clau.service_track.bff.infra.config.ResilienceProperties
 import java.math.BigDecimal
 import java.time.Duration
@@ -84,11 +84,11 @@ class OrdensHttpAdapterTest {
             }
         }
 
-        val fabrica = FabricaDeResiliencia(properties)
+        val fabrica = ResilienceFactory(properties)
         return OrdensHttpAdapter(
             cliente = cliente,
-            retryDeOrdens = fabrica.retry("ordens"),
-            disjuntorDeOrdens = fabrica.circuitBreaker("ordens"),
+            ordensRetry = fabrica.retry("ordens"),
+            ordensCircuitBreaker = fabrica.circuitBreaker("ordens"),
         )
     }
 

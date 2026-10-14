@@ -4,7 +4,7 @@ import com.clau.service_track.bff.application.port.out.CatalogoPort
 import com.clau.service_track.bff.domain.model.Insumo
 import com.clau.service_track.bff.domain.model.SaldoDeInsumo
 import com.clau.service_track.bff.domain.model.Servico
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.retry.Retry
 import org.springframework.context.annotation.Profile
@@ -16,32 +16,32 @@ import reactor.core.publisher.Mono
 @Profile("!dev")
 class CatalogoHttpAdapter(
     private val cliente: CatalogoApiClient,
-    retryDeCatalogo: Retry,
-    disjuntorDeCatalogo: CircuitBreaker,
+    catalogoRetry: Retry,
+    catalogoCircuitBreaker: CircuitBreaker,
 ) : CatalogoPort {
 
-    private val protecao = ProtecaoDeChamada("catalogo", retryDeCatalogo, disjuntorDeCatalogo)
+    private val guard = CallGuard("catalogo", catalogoRetry, catalogoCircuitBreaker)
 
     override fun listarServicos(): Flux<Servico> =
-        protecao.fluxTolerante(ROTA_DE_SERVICOS) { cliente.listarServicos() }
+        guard.fluxOrEmpty(ROTA_DE_SERVICOS) { cliente.listarServicos() }
             .filter { it.ativo }
             .map(::paraServico)
 
     override fun listarInsumos(): Flux<Insumo> =
-        protecao.fluxTolerante(ROTA_DE_INSUMOS) { cliente.listarInsumos() }
+        guard.fluxOrEmpty(ROTA_DE_INSUMOS) { cliente.listarInsumos() }
             .filter { it.ativo }
             .map(::paraInsumo)
 
     override fun buscarServicos(ids: Set<String>): Mono<Map<String, Servico>> = buscarEmLote(ids) { id ->
-        protecao.mono("$ROTA_DE_SERVICOS/{id}") { cliente.buscarServico(id) }.map(::paraServico)
+        guard.mono("$ROTA_DE_SERVICOS/{id}") { cliente.buscarServico(id) }.map(::paraServico)
     }
 
     override fun buscarInsumos(ids: Set<String>): Mono<Map<String, Insumo>> = buscarEmLote(ids) { id ->
-        protecao.mono("$ROTA_DE_INSUMOS/{id}") { cliente.buscarInsumo(id) }.map(::paraInsumo)
+        guard.mono("$ROTA_DE_INSUMOS/{id}") { cliente.buscarInsumo(id) }.map(::paraInsumo)
     }
 
     override fun saldoDe(insumoId: String): Mono<SaldoDeInsumo> =
-        protecao.mono("$ROTA_DE_INSUMOS/{id}/estoque") { cliente.saldoDe(insumoId) }.map(::paraSaldo)
+        guard.mono("$ROTA_DE_INSUMOS/{id}/estoque") { cliente.saldoDe(insumoId) }.map(::paraSaldo)
 
     private fun <T : Any> buscarEmLote(ids: Set<String>, busca: (String) -> Mono<T>): Mono<Map<String, T>> {
         if (ids.isEmpty()) return Mono.just(emptyMap())

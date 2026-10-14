@@ -7,10 +7,10 @@ import io.github.resilience4j.core.IntervalFunction
 import io.github.resilience4j.retry.Retry
 import io.github.resilience4j.retry.RetryConfig
 
-class FabricaDeResiliencia(private val properties: ResilienceProperties) {
+class ResilienceFactory(private val properties: ResilienceProperties) {
 
-    fun retry(nome: String): Retry = Retry.of(
-        nome,
+    fun retry(name: String): Retry = Retry.of(
+        name,
         RetryConfig.custom<Any>()
             .maxAttempts(properties.maxAttempts)
             .intervalFunction(
@@ -20,13 +20,13 @@ class FabricaDeResiliencia(private val properties: ResilienceProperties) {
                     properties.maxBackoff,
                 ),
             )
-            .retryOnException { erro -> erro is ServicoIndisponivelException }
+            .retryOnException { error -> error is ServicoIndisponivelException }
             .failAfterMaxAttempts(false)
             .build(),
     )
 
-    fun circuitBreaker(nome: String): CircuitBreaker = CircuitBreaker.of(
-        nome,
+    fun circuitBreaker(name: String): CircuitBreaker = CircuitBreaker.of(
+        name,
         CircuitBreakerConfig.custom()
             .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
             .slidingWindowSize(properties.slidingWindowSize)
@@ -35,7 +35,7 @@ class FabricaDeResiliencia(private val properties: ResilienceProperties) {
             .waitDurationInOpenState(properties.waitDurationInOpenState)
             .permittedNumberOfCallsInHalfOpenState(2)
             .automaticTransitionFromOpenToHalfOpenEnabled(true)
-            .recordException { erro -> erro is ServicoIndisponivelException }
+            .recordException { error -> error is ServicoIndisponivelException }
             .build(),
     )
 }

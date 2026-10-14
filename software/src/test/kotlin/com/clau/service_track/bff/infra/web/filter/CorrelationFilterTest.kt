@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -39,7 +39,7 @@ class CorrelationFilterTest {
 
     private val loggers = listOf(
         LoggerFactory.getLogger(CorrelationFilter::class.java) as Logger,
-        LoggerFactory.getLogger(ProtecaoDeChamada::class.java) as Logger,
+        LoggerFactory.getLogger(CallGuard::class.java) as Logger,
     )
 
     @BeforeTest
@@ -92,7 +92,7 @@ class CorrelationFilterTest {
             .exchange()
             .returnResult(String::class.java)
 
-        val doAdaptador = coletor.list.firstOrNull { it.loggerName.endsWith("ProtecaoDeChamada") }
+        val doAdaptador = coletor.list.firstOrNull { it.loggerName.endsWith("CallGuard") }
         assertNotNull(doAdaptador, "o adaptador nao registrou nada; o teste nao provou nada")
 
         assertEquals(

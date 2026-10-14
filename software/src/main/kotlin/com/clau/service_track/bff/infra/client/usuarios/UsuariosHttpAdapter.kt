@@ -4,7 +4,7 @@ import com.clau.service_track.bff.application.port.out.UsuariosPort
 import com.clau.service_track.bff.domain.model.Pessoa
 import com.clau.service_track.bff.domain.model.TipoDeUsuario
 import com.clau.service_track.bff.domain.model.Veiculo
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.retry.Retry
 import org.springframework.context.annotation.Profile
@@ -16,20 +16,20 @@ import reactor.core.publisher.Mono
 @Profile("!dev")
 class UsuariosHttpAdapter(
     private val cliente: UsuariosApiClient,
-    retryDeUsuarios: Retry,
-    disjuntorDeUsuarios: CircuitBreaker,
+    usuariosRetry: Retry,
+    usuariosCircuitBreaker: CircuitBreaker,
 ) : UsuariosPort {
 
-    private val protecao = ProtecaoDeChamada("usuarios", retryDeUsuarios, disjuntorDeUsuarios)
+    private val guard = CallGuard("usuarios", usuariosRetry, usuariosCircuitBreaker)
 
     override fun listarPorTipo(tipo: TipoDeUsuario): Flux<Pessoa> =
-        protecao.fluxTolerante(ROTA_DE_USUARIOS) { cliente.listarPorTipo(tipo.name) }.map(::paraPessoa)
+        guard.fluxOrEmpty(ROTA_DE_USUARIOS) { cliente.listarPorTipo(tipo.name) }.map(::paraPessoa)
 
     override fun buscarPorId(id: String): Mono<Pessoa> =
-        protecao.mono("$ROTA_DE_USUARIOS/{id}") { cliente.buscarPorId(id) }.map(::paraPessoa)
+        guard.mono("$ROTA_DE_USUARIOS/{id}") { cliente.buscarPorId(id) }.map(::paraPessoa)
 
     override fun listarVeiculosDoCliente(clienteId: String): Flux<Veiculo> =
-        protecao.fluxTolerante(ROTA_DE_VEICULOS) { cliente.listarVeiculosDoCliente(clienteId) }.map(::paraVeiculo)
+        guard.fluxOrEmpty(ROTA_DE_VEICULOS) { cliente.listarVeiculosDoCliente(clienteId) }.map(::paraVeiculo)
 
     private fun paraPessoa(resposta: UsuarioResponse) = Pessoa(
         id = resposta.id,

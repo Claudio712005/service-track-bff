@@ -3,7 +3,7 @@ package com.clau.service_track.bff.infra.client.catalogo
 import com.clau.service_track.bff.domain.exception.NaoAutorizadoException
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
-import com.clau.service_track.bff.infra.config.FabricaDeResiliencia
+import com.clau.service_track.bff.infra.config.ResilienceFactory
 import com.clau.service_track.bff.infra.config.ResilienceProperties
 import java.math.BigDecimal
 import java.time.Duration
@@ -71,11 +71,11 @@ class CatalogoHttpAdapterTest {
             }
         }
 
-        val fabrica = FabricaDeResiliencia(properties)
+        val fabrica = ResilienceFactory(properties)
         return CatalogoHttpAdapter(
             cliente = cliente,
-            retryDeCatalogo = fabrica.retry("catalogo"),
-            disjuntorDeCatalogo = fabrica.circuitBreaker("catalogo"),
+            catalogoRetry = fabrica.retry("catalogo"),
+            catalogoCircuitBreaker = fabrica.circuitBreaker("catalogo"),
         )
     }
 

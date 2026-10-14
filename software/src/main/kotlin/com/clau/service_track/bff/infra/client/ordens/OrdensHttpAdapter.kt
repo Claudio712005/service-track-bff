@@ -10,7 +10,7 @@ import com.clau.service_track.bff.domain.model.PassoDaSaga
 import com.clau.service_track.bff.domain.model.PedidoDeAbertura
 import com.clau.service_track.bff.domain.model.Saga
 import com.clau.service_track.bff.domain.model.StatusDaOrdem
-import com.clau.service_track.bff.infra.client.ProtecaoDeChamada
+import com.clau.service_track.bff.infra.client.CallGuard
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.retry.Retry
 import org.springframework.context.annotation.Profile
@@ -22,31 +22,31 @@ import reactor.core.publisher.Mono
 @Profile("!dev")
 class OrdensHttpAdapter(
     private val cliente: OrdensApiClient,
-    retryDeOrdens: Retry,
-    disjuntorDeOrdens: CircuitBreaker,
+    ordensRetry: Retry,
+    ordensCircuitBreaker: CircuitBreaker,
 ) : OrdensPort {
 
-    private val protecao = ProtecaoDeChamada("ordens", retryDeOrdens, disjuntorDeOrdens)
+    private val guard = CallGuard("ordens", ordensRetry, ordensCircuitBreaker)
 
     override fun abrir(pedido: PedidoDeAbertura): Mono<OrdemServico> =
-        protecao.mono(ROTA) { cliente.abrir(paraRequisicao(pedido)) }.map(::paraOrdem)
+        guard.mono(ROTA) { cliente.abrir(paraRequisicao(pedido)) }.map(::paraOrdem)
 
     override fun buscarPorId(id: String): Mono<OrdemServico> =
-        protecao.mono("$ROTA/{id}") { cliente.buscarPorId(id) }.map(::paraOrdem)
+        guard.mono("$ROTA/{id}") { cliente.buscarPorId(id) }.map(::paraOrdem)
 
     override fun listarDoCliente(clienteId: String): Flux<OrdemServico> =
-        protecao.mono(ROTA) { cliente.listarDoCliente(clienteId, TAMANHO_DA_PAGINA) }
+        guard.mono(ROTA) { cliente.listarDoCliente(clienteId, TAMANHO_DA_PAGINA) }
             .flatMapIterable { pagina -> pagina.conteudo }
             .map(::paraOrdem)
 
     override fun historicoDe(id: String): Flux<FatoDaOrdem> =
-        protecao.flux("$ROTA/{id}/historico") { cliente.historicoDe(id) }.map(::paraFato)
+        guard.flux("$ROTA/{id}/historico") { cliente.historicoDe(id) }.map(::paraFato)
 
     override fun sagasDe(id: String): Flux<Saga> =
-        protecao.fluxTolerante("$ROTA/{id}/saga") { cliente.sagasDe(id) }.map(::paraSaga)
+        guard.fluxOrEmpty("$ROTA/{id}/saga") { cliente.sagasDe(id) }.map(::paraSaga)
 
     override fun aprovarOrcamento(id: String): Mono<OrdemServico> =
-        protecao.mono("$ROTA/{id}/orcamento/aprovacao") { cliente.aprovarOrcamento(id) }.map(::paraOrdem)
+        guard.mono("$ROTA/{id}/orcamento/aprovacao") { cliente.aprovarOrcamento(id) }.map(::paraOrdem)
 
     private fun paraRequisicao(pedido: PedidoDeAbertura) = AbrirOrdemRequest(
         motivo = pedido.motivo,

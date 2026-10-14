@@ -3,7 +3,7 @@ package com.clau.service_track.bff.infra.client.usuarios
 import com.clau.service_track.bff.domain.exception.RecursoNaoEncontradoException
 import com.clau.service_track.bff.domain.exception.ServicoIndisponivelException
 import com.clau.service_track.bff.domain.model.TipoDeUsuario
-import com.clau.service_track.bff.infra.config.FabricaDeResiliencia
+import com.clau.service_track.bff.infra.config.ResilienceFactory
 import com.clau.service_track.bff.infra.config.ResilienceProperties
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
@@ -58,11 +58,11 @@ class UsuariosHttpAdapterTest {
             }
         }
 
-        val fabrica = FabricaDeResiliencia(properties)
+        val fabrica = ResilienceFactory(properties)
         return UsuariosHttpAdapter(
             cliente = cliente,
-            retryDeUsuarios = fabrica.retry("usuarios"),
-            disjuntorDeUsuarios = fabrica.circuitBreaker("usuarios"),
+            usuariosRetry = fabrica.retry("usuarios"),
+            usuariosCircuitBreaker = fabrica.circuitBreaker("usuarios"),
         )
     }
 
