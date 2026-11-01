@@ -1,0 +1,543 @@
+{
+  "info": {
+    "name": "ServiceTrack — Borda pública",
+    "description": "Entrada publica da plataforma: `POST /autenticacao`, servida pela Lambda, e `/bff/**`, servido pelo BFF por VPC Link e NLB interno (`IAC-ADR-035`). Nenhum outro microsservico e alcancavel por gateway.\n\n**O prefixo `/bff` morre na borda.** Em hml e prd a requisicao vai para `<gateway>/bff/clientes` e a aplicacao recebe `/clientes`; no local, sem gateway, o caminho e `/clientes` direto. A variavel `prefixoBff` cobre essa diferenca, e e a unica diferenca de caminho entre os ambientes.\n\n**URL e chave de API mudam a cada recriacao do ambiente.** Nunca preencha esses valores a mao nos arquivos versionados: use `scripts/gerar-ambiente-postman.sh`. Ver `docs/postman/README.md`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "",
+      "description": "Raiz do ambiente. Gateway em hml/prd, host do BFF no local."
+    },
+    {
+      "key": "prefixoBff",
+      "value": "",
+      "description": "`/bff` em hml e prd. Vazio no local."
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "description": "Chave do API Gateway. Vazia no local."
+    },
+    {
+      "key": "token",
+      "value": "",
+      "description": "Preenchido pela requisicao de autenticacao."
+    },
+    {
+      "key": "cpf",
+      "value": "",
+      "description": "CPF do usuario de teste, 11 digitos."
+    },
+    {
+      "key": "senha",
+      "value": "",
+      "description": "Senha do usuario de teste, minimo 8 caracteres."
+    },
+    {
+      "key": "clienteId",
+      "value": "",
+      "description": "UUID de um cliente existente."
+    },
+    {
+      "key": "mecanicoId",
+      "value": "",
+      "description": "UUID de um mecanico existente."
+    },
+    {
+      "key": "veiculoId",
+      "value": "",
+      "description": "UUID de um veiculo do cliente."
+    },
+    {
+      "key": "insumoId",
+      "value": "",
+      "description": "UUID de um insumo do catalogo."
+    },
+    {
+      "key": "ordemId",
+      "value": "",
+      "description": "Preenchido ao abrir uma ordem."
+    },
+    {
+      "key": "motivo",
+      "value": "Revisao de 10 mil quilometros",
+      "description": "Motivo da entrada do veiculo."
+    }
+  ],
+  "item": [
+    {
+      "name": "Autenticação",
+      "description": "Emitida pela Lambda, nao pelo BFF. Em hml e prd o caminho e `/autenticacao` na raiz do gateway, sem o prefixo do BFF. **No local nao existe Lambda**: o overlay sobe o BFF com `ST_BFF_JWT_ENABLED=false` e as rotas respondem sem token.",
+      "item": [
+        {
+          "name": "Entrar e guardar o token",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/autenticacao",
+              "host": [
+                "{{baseUrl}}/autenticacao"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"{{cpf}}\",\n  \"senha\": \"{{senha}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "CPF com ou sem pontuacao, 11 digitos. Senha de no minimo 8 caracteres. Devolve `token`, `tipo` e `expiraEmSegundos`. O teste guarda o token no ambiente ativo, e as demais requisicoes o usam como Bearer pela autenticacao da colecao."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                  "const corpo = pm.response.json();",
+                  "pm.test(\"devolve token\", () => pm.expect(corpo.token).to.be.a(\"string\").and.not.empty);",
+                  "pm.environment.set(\"token\", corpo.token);",
+                  "console.log(\"token guardado, expira em\", corpo.expiraEmSegundos, \"s\");"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Saúde",
+      "description": "Rotas abertas no BFF: nao exigem token nem passam pela autenticacao da colecao.",
+      "item": [
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/actuator/health/readiness",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/actuator/health/readiness"
+              ]
+            },
+            "description": "O que a sonda do Kubernetes consulta. UP quando o contexto subiu.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/actuator/health/liveness",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/actuator/health/liveness"
+              ]
+            },
+            "description": "UP enquanto o processo responde.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Contrato OpenAPI",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/v3/api-docs",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/v3/api-docs"
+              ]
+            },
+            "description": "Contrato que o BFF publica de si mesmo.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Clientes",
+      "item": [
+        {
+          "name": "Listar clientes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/clientes",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/clientes"
+              ]
+            },
+            "description": "Composicao do servico de usuarios. Devolve a lista de pessoas do tipo cliente."
+          },
+          "response": []
+        },
+        {
+          "name": "Detalhar cliente com veículos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/clientes/{{clienteId}}",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/clientes/{{clienteId}}"
+              ]
+            },
+            "description": "Compoe o cliente com os veiculos dele, em duas chamadas ao servico de usuarios."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Mecânicos",
+      "item": [
+        {
+          "name": "Listar mecânicos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/mecanicos",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/mecanicos"
+              ]
+            },
+            "description": "Pessoas do tipo mecanico."
+          },
+          "response": []
+        },
+        {
+          "name": "Detalhar mecânico",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/mecanicos/{{mecanicoId}}",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/mecanicos/{{mecanicoId}}"
+              ]
+            },
+            "description": "Um mecanico por identificador."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Catálogo",
+      "description": "Leitura do catalogo e do estoque, pelo BFF. Apenas servicos e insumos ativos.",
+      "item": [
+        {
+          "name": "Listar serviços",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/servicos",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/catalogo/servicos"
+              ]
+            },
+            "description": "Servicos ativos da oficina."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar insumos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/catalogo/insumos"
+              ]
+            },
+            "description": "Insumos ativos."
+          },
+          "response": []
+        },
+        {
+          "name": "Saldo de um insumo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoId}}/saldo",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoId}}/saldo"
+              ]
+            },
+            "description": "Saldo disponivel e quantidade reservada de um insumo."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ordens de serviço",
+      "description": "Abertura, consulta e aprovacao de orcamento. A aprovacao **nao** transiciona o estado por si: ela dispara a saga de reserva de insumo, e quem avanca a OS e a confirmacao da saga (`GLOBAL-ADR-007`).",
+      "item": [
+        {
+          "name": "Abrir ordem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens"
+              ]
+            },
+            "description": "Abre a OS. Os tres identificadores sao UUID e precisam existir nos servicos donos. O teste guarda o id devolvido em `ordemId`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivo\": \"{{motivo}}\",\n  \"clienteId\": \"{{clienteId}}\",\n  \"mecanicoId\": \"{{mecanicoId}}\",\n  \"veiculoId\": \"{{veiculoId}}\",\n  \"observacao\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                  "const corpo = pm.response.json();",
+                  "if (corpo.id) { pm.environment.set(\"ordemId\", corpo.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detalhar ordem",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}"
+              ]
+            },
+            "description": "Visao composta: a OS mais os servicos e insumos resolvidos no catalogo, e o cliente resolvido no servico de usuarios."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar ordens de um cliente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens?clienteId={{clienteId}}",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens"
+              ],
+              "query": [
+                {
+                  "key": "clienteId",
+                  "value": "{{clienteId}}"
+                }
+              ]
+            },
+            "description": "Ordens de um cliente. O parametro e obrigatorio."
+          },
+          "response": []
+        },
+        {
+          "name": "Aprovar orçamento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao"
+              ]
+            },
+            "description": "Aprova o orcamento e dispara a saga de reserva. Idempotente por estado: aprovar duas vezes nao abre duas sagas."
+          },
+          "response": []
+        },
+        {
+          "name": "Histórico da ordem",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico"
+              ]
+            },
+            "description": "Transicoes de estado, em ordem. Inclui as linhas que a saga escreve."
+          },
+          "response": []
+        },
+        {
+          "name": "Sagas da ordem",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "description": "Exigida pelo API Gateway em hml e prd. Vazia no local, onde nao ha gateway."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+              "host": [
+                "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+              ]
+            },
+            "description": "Estado das sagas da OS. Em caso de consumo recusado, a linha de bloqueio aparece aqui."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
