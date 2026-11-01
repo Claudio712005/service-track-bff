@@ -16,3 +16,5 @@ keys/
 *.pem
 *.p12
 *.jks
+
+*.gerado.json
