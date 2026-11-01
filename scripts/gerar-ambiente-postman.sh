@@ -38,11 +38,47 @@ fi
 CHAVE="$(aws apigateway get-api-key --api-key "$ID_CHAVE" --include-value \
   --region "$REGIAO" --query value --output text)"
 
-MODELO="$MODELO" URL="$URL" CHAVE="$CHAVE" AMBIENTE="$AMBIENTE" SAIDA="$SAIDA" python3 - <<'PY'
+ler_do_servico() {
+  local ns="$1" caminho="$2" jq_filtro="$3"
+  kubectl -n "$ns" exec "deploy/$ns" -- \
+    sh -c "wget -qO- --timeout=8 http://localhost:8080$caminho" 2>/dev/null \
+    | python3 -c "import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+itens = d if isinstance(d, list) else d.get('content', [])
+print(itens[0]['$jq_filtro'] if itens else '', end='')" 2>/dev/null || true
+}
+
+INSUMO_ID=""; SERVICO_ID=""; CLIENTE_ID=""; MECANICO_ID=""; VEICULO_ID=""
+if kubectl get ns service-track-catalogo >/dev/null 2>&1; then
+  echo "lendo identificadores do ambiente..."
+  INSUMO_ID="$(ler_do_servico service-track-catalogo /insumos id)"
+  SERVICO_ID="$(ler_do_servico service-track-catalogo /servicos id)"
+  CLIENTE_ID="$(ler_do_servico service-track-usuarios-veiculos '/usuarios?tipo=CLIENTE' id)"
+  MECANICO_ID="$(ler_do_servico service-track-usuarios-veiculos '/usuarios?tipo=MECANICO' id)"
+  [ -n "$CLIENTE_ID" ] && VEICULO_ID="$(ler_do_servico service-track-usuarios-veiculos "/veiculos?clienteId=$CLIENTE_ID" id)"
+else
+  echo "::warning::kubeconfig sem o cluster de $AMBIENTE: os identificadores ficam vazios."
+fi
+
+MODELO="$MODELO" URL="$URL" CHAVE="$CHAVE" AMBIENTE="$AMBIENTE" SAIDA="$SAIDA" \
+INSUMO_ID="$INSUMO_ID" SERVICO_ID="$SERVICO_ID" CLIENTE_ID="$CLIENTE_ID" \
+MECANICO_ID="$MECANICO_ID" VEICULO_ID="$VEICULO_ID" python3 - <<'PY'
 import json, os
 
 modelo = json.load(open(os.environ["MODELO"], encoding="utf-8"))
-preenchido = {"baseUrl": os.environ["URL"], "apiKey": os.environ["CHAVE"]}
+preenchido = {
+    "baseUrl": os.environ["URL"],
+    "apiKey": os.environ["CHAVE"],
+    "insumoId": os.environ.get("INSUMO_ID", ""),
+    "servicoId": os.environ.get("SERVICO_ID", ""),
+    "clienteId": os.environ.get("CLIENTE_ID", ""),
+    "mecanicoId": os.environ.get("MECANICO_ID", ""),
+    "veiculoId": os.environ.get("VEICULO_ID", ""),
+}
+preenchido = {k: v for k, v in preenchido.items() if v}
 
 for valor in modelo["values"]:
     if valor["key"] in preenchido:
@@ -61,6 +97,15 @@ echo "  $SAIDA"
 echo ""
 echo "  baseUrl: $URL"
 echo "  apiKey:  <$(printf %s "$CHAVE" | wc -c | tr -d ' ') caracteres, consumidor $CONSUMIDOR>"
+printf "  insumoId: %s\n" "${INSUMO_ID:-<vazio>}"
+printf "  clienteId: %s\n" "${CLIENTE_ID:-<vazio: nenhum cliente cadastrado>}"
+printf "  mecanicoId: %s\n" "${MECANICO_ID:-<vazio: nenhum mecanico cadastrado>}"
+if [ -z "$CLIENTE_ID" ]; then
+  echo ""
+  echo "::warning::Sem cliente cadastrado, a autenticacao nao tem com quem funcionar."
+  echo "O baseline do servico de usuarios nao semeia usuario, e nao existe rota publica"
+  echo "para criar um: o servico nao fica atras do gateway e o BFF so le."
+fi
 echo ""
 echo "Este arquivo carrega a chave de API e nao e versionado. Importe no Postman e,"
 echo "depois da proxima recriacao do ambiente, gere de novo: URL e chave mudam."
