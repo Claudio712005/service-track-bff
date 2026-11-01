@@ -42,22 +42,59 @@ scripts/gerar-ambiente-postman.sh hml        # consumidor web, o padrão
 scripts/gerar-ambiente-postman.sh hml ci     # ou mobile
 ```
 
-Ele lê a URL de `/servicetrack/<env>/api/base-url` no SSM e a chave do API Gateway, e escreve
-`ambientes/<env>.gerado.json` — que está no `.gitignore`. Importe esse arquivo no Postman.
+Ele lê a URL de `/servicetrack/<env>/api/base-url` no SSM e a chave do API Gateway, consulta o
+cluster para preencher `insumoId`, `servicoId`, `clienteId`, `mecanicoId` e `veiculoId`, e escreve
+`ambientes/<env>.gerado.json` — que está no `.gitignore`. Importe **esse** arquivo no Postman, não
+o modelo.
+
+**Importar o modelo versionado é a causa mais comum de `403` em tudo.** Ele tem `apiKey` vazia de
+propósito, e o gateway recusa toda requisição sem a chave, antes de chegar na aplicação. Se a
+chave estiver certa e faltar o token, a resposta é `401`, não `403` — essa é a forma de
+distinguir os dois.
 
 Depois de cada recriação de ambiente, gere de novo. Se a chamada responder `403` sem explicação,
 quase sempre é a chave velha.
 
 ## Como usar
 
-1. Importe a coleção e o ambiente
-2. Preencha `cpf` e `senha` de um usuário que exista no serviço de usuários
+1. Importe a coleção e o ambiente **gerado**
+2. Preencha `cpf` e `senha` de um usuário que exista no serviço de usuários — ver abaixo
 3. Rode **Autenticação → Entrar e guardar o token**: o teste grava o token no ambiente ativo
 4. As demais requisições usam esse token como Bearer, pela autenticação da coleção
 
-`clienteId`, `mecanicoId`, `veiculoId` e `insumoId` são UUID e precisam existir nos serviços
-donos — o seed do catálogo cria insumos e serviços; cliente, mecânico e veículo vêm do serviço
-de usuários. `ordemId` é preenchido sozinho quando você abre uma ordem.
+`insumoId` e `servicoId` o gerador preenche: o baseline do catálogo semeia insumos e serviços.
+`ordemId` é preenchido sozinho quando você abre uma ordem.
+
+## Não existe usuário em um ambiente novo, e isso bloqueia o login
+
+O baseline do `service-track-usuarios-veiculos` **não semeia nenhum usuário**, ao contrário do
+catálogo. E não há caminho público para criar um: o serviço não fica atrás do gateway
+(`IAC-ADR-035`) e o BFF só lê — não tem `POST` para cliente nem para mecânico.
+
+Então, num ambiente recém-criado, a pasta Autenticação não tem com quem funcionar, e o gerador
+avisa isso. Para destravar, crie um usuário por dentro do cluster:
+
+```bash
+kubectl -n service-track-usuarios-veiculos port-forward \
+  svc/service-track-usuarios-veiculos 18081:80 &
+
+curl -sS -X POST http://localhost:18081/usuarios \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "documento": "52998224725",
+        "nome": "Joana Ferreira Lima",
+        "email": "joana.lima@oficina.com.br",
+        "senha": "troque-esta-senha",
+        "tipoDeUsuario": "CLIENTE",
+        "telefone": "11988887777"
+      }'
+```
+
+O documento é a chave de login — CPF de 11 dígitos, sem pontuação, com dígito verificador
+válido. Repita com `"tipoDeUsuario": "MECANICO"` e outro CPF para poder abrir ordem.
+
+Depois disso, rode o gerador de novo: ele passa a preencher `clienteId`, `mecanicoId` e
+`veiculoId` sozinho.
 
 As rotas da pasta **Saúde** são abertas no BFF: não exigem token e ignoram a autenticação da
 coleção.
