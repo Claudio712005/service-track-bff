@@ -12,7 +12,7 @@ components:
 images:
   - name: servicetrack-bff
     newName: 211125778702.dkr.ecr.us-east-1.amazonaws.com/servicetrack-hml-bff
-    newTag: 19f3cd40f331a45dcda758dc7ca23df020e0be3e
+    newTag: cd246e6921c21cbebd4e3c49c84d3c0e26f5c786
 
 patches:
   - path: hpa-patch.yaml
