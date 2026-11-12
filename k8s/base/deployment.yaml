@@ -25,6 +25,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: service-track-bff-config
+            - secretRef:
+                name: service-track-observabilidade
+                optional: true
           volumeMounts:
             - name: jwt
               mountPath: /etc/servicetrack/jwt
