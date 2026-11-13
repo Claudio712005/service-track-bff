@@ -4,7 +4,7 @@ metadata:
   name: service-track-bff
 spec:
   minReplicas: 1
-  maxReplicas: 2
+  maxReplicas: 1
   metrics:
     - type: Resource
       resource:
