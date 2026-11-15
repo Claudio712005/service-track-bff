@@ -193,7 +193,8 @@ if [ -n "$TOKEN" ]; then
 else
   echo "  Sem token: rode Autenticacao antes da pasta Apresentacao."
 fi
-echo "  Falta ainda, fora deste script:"
-echo "    kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80"
+echo "  Falta ainda, fora deste script, os port-forwards:"
+echo "    kubectl -n service-track-ordens port-forward svc/service-track-ordens 18083:80"
+echo "    kubectl -n service-track-checkout port-forward svc/service-track-checkout 18084:80"
 echo ""
 echo "  Este arquivo carrega chave de API e token. Nao e versionado."
