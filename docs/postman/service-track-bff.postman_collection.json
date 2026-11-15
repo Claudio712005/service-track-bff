@@ -74,6 +74,36 @@
       "key": "motivo",
       "value": "Revisao de 10 mil quilometros",
       "description": "Motivo da entrada do veiculo."
+    },
+    {
+      "key": "urlOrdens",
+      "value": "",
+      "description": "Serviço de ordens, fora da borda. Em hml e prd e o port-forward: kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80. No local e a porta do compose."
+    },
+    {
+      "key": "insumoComSaldo",
+      "value": "",
+      "description": "OL-5W30-SYN-1L, que o seed do catalogo abre com 48 litros. Id fixo: vem do baseline."
+    },
+    {
+      "key": "insumoSemSaldo",
+      "value": "",
+      "description": "OL-20W50-MIN-1L, que o seed mantem em saldo zero de proposito. E o gatilho de falha da saga."
+    },
+    {
+      "key": "disponivelAntes",
+      "value": "",
+      "description": "Preenchido pelas pastas de apresentacao, para conferir o saldo no fim."
+    },
+    {
+      "key": "reservadoAntes",
+      "value": "",
+      "description": "Preenchido pelas pastas de apresentacao, para provar a compensacao."
+    },
+    {
+      "key": "situacaoDaSaga",
+      "value": "",
+      "description": "Ultima situacao lida de uma saga. Diagnostico, nao entrada."
     }
   ],
   "item": [
@@ -536,6 +566,1360 @@
             "description": "Estado das sagas da OS. Em caso de consumo recusado, a linha de bloqueio aparece aqui."
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Apresentação",
+      "description": "Os três cenários da gravação, na ordem em que entram no vídeo. Cada pasta é autossuficiente: abre a própria OS e termina com a conferência que prova o desfecho **no banco do serviço dono do dado**, não em log.\n\n| Pasta | O que prova | Desfecho |\n|---|---|---|\n| 1 · OS completa | as duas sagas confirmando | `FINALIZADA` |\n| 2 · Saga infeliz | recusa de negócio e compensação do que havia confirmado | `CANCELADA` |\n| 3 · Saga triste | prazo vencido sem resposta nenhuma | `CANCELADA` |\n\n**Antes de qualquer pasta:**\n\n1. Rode **Autenticação → Entrar e guardar o token**.\n2. Abra o port-forward do serviço de ordens, que as pastas usam em `{{urlOrdens}}`:\n   `kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80`\n3. Confirme que o ambiente foi **gerado**, não importado do modelo: chave vazia dá `403` em tudo.\n\n**Por que algumas requisições não passam pela borda:** diagnóstico, insumo, orçamento e finalização não existem no BFF. A borda pública tem duas rotas e nada mais (`IAC-ADR-035`), e o BFF só abre e aprova a OS. Montar a OS é conversa com o serviço dono dela. No vídeo, vale uma frase dizendo isso — é fronteira desenhada, não falta.\n\n**As requisições de saga pedem reenvio.** A OUTBOX publica a cada 2 s, então o estado muda em segundos; os testes dessas chamadas conferem o formato e imprimem a situação no console, sem reprovar enquanto a saga está em curso. Quem reprova é a conferência de status que vem depois.",
+      "item": [
+        {
+          "name": "1 · Cenário — OS completa",
+          "description": "Caminho feliz, de ponta a ponta: a OS nasce, recebe um insumo **que tem saldo**, o orçamento é aprovado, a saga de reserva confirma, a OS entra em execução, a finalização dispara a saga de consumo e a OS termina em `FINALIZADA`.\n\n**Duas requisições saem da borda e vão direto ao serviço de ordens** — diagnóstico, insumo, orçamento e finalização não existem no BFF, porque o BFF só abre e aprova (`IAC-ADR-035`). Elas usam `{{urlOrdens}}` e exigem o port-forward aberto:\n\n```\nkubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80\n```\n\nRode a pasta **Autenticação** antes: todas as chamadas pela borda usam o token.",
+          "item": [
+            {
+              "name": "01 · Saldo do insumo antes",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo"
+                  ]
+                },
+                "description": "Ponto de partida. Guarda `disponivelAntes` e `reservadoAntes` para a conferência do passo 12. O insumo é o `OL-5W30-SYN-1L`, que o seed abre com 48 litros."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const saldo = pm.response.json();",
+                      "pm.environment.set(\"disponivelAntes\", saldo.quantidadeDisponivel);",
+                      "pm.environment.set(\"reservadoAntes\", saldo.quantidadeReservada);",
+                      "console.log(saldo.sku, \"disponivel:\", saldo.quantidadeDisponivel,",
+                      "            \"reservado:\", saldo.quantidadeReservada, saldo.unidadeDeMedida);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "02 · Abrir a OS",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens"
+                  ]
+                },
+                "description": "Pela borda. O BFF repassa ao serviço de ordens e **não valida** cliente, mecânico nem veículo — quem valida é o dono de cada dado. Guarda `ordemId`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"motivo\": \"{{motivo}}\",\n  \"clienteId\": \"{{clienteId}}\",\n  \"mecanicoId\": \"{{mecanicoId}}\",\n  \"veiculoId\": \"{{veiculoId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                      "const ordem = pm.response.json();",
+                      "pm.test(\"nasce em RECEBIDA\", () => pm.expect(ordem.status).to.eql(\"RECEBIDA\"));",
+                      "pm.environment.set(\"ordemId\", ordem.id);",
+                      "console.log(\"ordem aberta:\", ordem.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "03 · Iniciar o diagnóstico",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico"
+                  ]
+                },
+                "description": "Direto no serviço de ordens. **Insumo só entra em `EM_DIAGNOSTICO`** — é regra de domínio, não de API."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"passou para EM_DIAGNOSTICO\",",
+                      "  () => pm.expect(pm.response.json().status).to.eql(\"EM_DIAGNOSTICO\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "04 · Adicionar 2 L do insumo com saldo",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/insumos",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/insumos"
+                  ]
+                },
+                "description": "A quantidade aqui é a que vai no comando `ReservarEstoque`. O insumo tem 48 L no seed, então a reserva de 2 L confirma.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"insumoId\": \"{{insumoComSaldo}}\",\n  \"quantidade\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200 ou 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "05 · Gerar o orçamento",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/orcamento",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/orcamento"
+                  ]
+                },
+                "description": "Os valores ficam congelados na OS: o preço de referência do catálogo pode mudar depois. A OS passa para `AGUARDANDO_APROVACAO`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"custoMaoDeObra\": 300.0,\n  \"custoInsumos\": 180.0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"aguarda aprovacao\",",
+                      "  () => pm.expect(pm.response.json().status).to.eql(\"AGUARDANDO_APROVACAO\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "06 · Aprovar o orçamento — dispara a saga",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao"
+                  ]
+                },
+                "description": "**A resposta ainda vem em `AGUARDANDO_APROVACAO`, e isso é correto.** Aprovar não avança o estado: abre a saga de reserva. Quem transiciona é a confirmação do catálogo. É o ponto da demonstração — mostre a resposta antes de ir para a saga."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"nao avanca de estado na resposta\",",
+                      "  () => pm.expect(pm.response.json().status).to.eql(\"AGUARDANDO_APROVACAO\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "07 · Acompanhar a saga de reserva",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+                  ]
+                },
+                "description": "**Reenvie até ver `CONCLUIDA`.** Leva segundos: a OUTBOX publica a cada 2 s. A sequência é `EM_CURSO` com 1 passo pendente e depois `CONCLUIDA` com 0. O console do Postman imprime a situação de cada passo."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const sagas = pm.response.json();",
+                      "const saga = sagas.find((s) => s.tipo === \"RESERVA\");",
+                      "pm.test(\"a saga de RESERVA existe\", () => pm.expect(saga).to.be.an(\"object\"));",
+                      "if (saga) {",
+                      "  const pendentes = saga.passos.filter((p) => p.situacao === \"PENDENTE\").length;",
+                      "  pm.environment.set(\"situacaoDaSaga\", saga.situacao);",
+                      "  console.log(saga.tipo, saga.situacao, \"| etapa:\", saga.etapa,",
+                      "              \"| pendentes:\", pendentes, \"de\", saga.passos.length);",
+                      "  saga.passos.forEach((p) => console.log(\"  passo\", p.insumoId, p.situacao,",
+                      "                                          p.motivo === null ? \"\" : p.motivo));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "08 · Conferir que a OS entrou em execução",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}"
+                  ]
+                },
+                "description": "Agora sim a OS avançou, e quem a avançou foi a confirmação da reserva. Se este teste falhar, a saga ainda não concluiu: volte ao passo 07."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const composta = pm.response.json();",
+                      "pm.test(\"a OS esta em EM_EXECUCAO\", () => pm.expect(composta.ordem.status).to.eql(\"EM_EXECUCAO\"));",
+                      "console.log(\"status:\", composta.ordem.status);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "09 · Pedir a finalização — dispara a saga de consumo",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/finalizacao",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/finalizacao"
+                  ]
+                },
+                "description": "Segunda saga da OS. O consumo baixa o reservado no catálogo e é **irreversível** — por isso é o último passo com efeito externo."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "console.log(\"status apos pedir finalizacao:\", pm.response.json().status);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10 · Acompanhar a saga de consumo",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+                  ]
+                },
+                "description": "Duas sagas aparecem agora: `RESERVA` concluída e `CONSUMO` em curso. Reenvie até `CONSUMO` ficar `CONCLUIDA`."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const sagas = pm.response.json();",
+                      "const saga = sagas.find((s) => s.tipo === \"CONSUMO\");",
+                      "pm.test(\"a saga de CONSUMO existe\", () => pm.expect(saga).to.be.an(\"object\"));",
+                      "if (saga) {",
+                      "  const pendentes = saga.passos.filter((p) => p.situacao === \"PENDENTE\").length;",
+                      "  pm.environment.set(\"situacaoDaSaga\", saga.situacao);",
+                      "  console.log(saga.tipo, saga.situacao, \"| etapa:\", saga.etapa,",
+                      "              \"| pendentes:\", pendentes, \"de\", saga.passos.length);",
+                      "  saga.passos.forEach((p) => console.log(\"  passo\", p.insumoId, p.situacao,",
+                      "                                          p.motivo === null ? \"\" : p.motivo));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "11 · Conferir que a OS finalizou",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}"
+                  ]
+                },
+                "description": "Fim do caminho feliz."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const composta = pm.response.json();",
+                      "pm.test(\"a OS esta em FINALIZADA\", () => pm.expect(composta.ordem.status).to.eql(\"FINALIZADA\"));",
+                      "console.log(\"status:\", composta.ordem.status);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "12 · Conferir a baixa no saldo",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo"
+                  ]
+                },
+                "description": "**É aqui que o fluxo se prova.** O disponível caiu 2 litros e o reservado voltou para onde estava: o efeito está no banco do catálogo, não num log do orquestrador."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const saldo = pm.response.json();",
+                      "const antes = Number(pm.environment.get(\"disponivelAntes\"));",
+                      "const reservadoAntes = Number(pm.environment.get(\"reservadoAntes\"));",
+                      "pm.test(\"o disponivel caiu 2\",",
+                      "  () => pm.expect(Number(saldo.quantidadeDisponivel)).to.eql(antes - 2));",
+                      "pm.test(\"nao sobrou reserva pendurada\",",
+                      "  () => pm.expect(Number(saldo.quantidadeReservada)).to.eql(reservadoAntes));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "13 · Linha do tempo da OS",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico"
+                  ]
+                },
+                "description": "Todas as transições, na ordem. Quem desenha só a régua de estados filtra por `transicionou`."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const fatos = pm.response.json();",
+                      "pm.test(\"registra a chegada em FINALIZADA\",",
+                      "  () => pm.expect(fatos.map((f) => f.statusNovo)).to.include(\"FINALIZADA\"));",
+                      "fatos.forEach((f) => console.log(f.ocorridoEm, f.statusAnterior, \"->\", f.statusNovo,",
+                      "                                 f.transicionou ? \"\" : \"(sem transicao)\",",
+                      "                                 f.motivo === null ? \"\" : f.motivo));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "2 · Cenário — Saga infeliz: recusa de negócio",
+          "description": "O catálogo **responde, e responde não**. A OS vai com **dois** insumos: um com saldo, que confirma, e o `OL-20W50-MIN-1L`, que o seed mantém em saldo zero de propósito e recusa toda reserva.\n\nÉ com dois insumos que a compensação fica visível: o orquestrador libera o que **já havia confirmado** e não pede liberação do que nunca reservou. Com um insumo só, não haveria nada para compensar.\n\nDesfecho: saga `COMPENSANDO` → `COMPENSADA`, OS em `CANCELADA`, motivo da recusa no histórico, e o reservado do insumo bom de volta ao valor inicial.\n\nO gatilho vive em `db/postgres/03_seed_estoque.sql`, no catálogo. **Nada é alterado em ambiente ao vivo para provocar esta falha.**",
+          "item": [
+            {
+              "name": "01 · Confirmar o gatilho: insumo com saldo zero",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoSemSaldo}}/saldo",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoSemSaldo}}/saldo"
+                  ]
+                },
+                "description": "Abra a demonstração por aqui: `quantidadeDisponivel` é `0`. Este insumo existe no catálogo, está ativo, e não tem saldo — a recusa que vem é de negócio, não falha técnica."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const saldo = pm.response.json();",
+                      "pm.test(\"o gatilho esta armado: disponivel zero\",",
+                      "  () => pm.expect(Number(saldo.quantidadeDisponivel)).to.eql(0));",
+                      "console.log(\"gatilho:\", saldo.sku, \"disponivel\", saldo.quantidadeDisponivel);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "02 · Saldo do insumo que vai confirmar",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo"
+                  ]
+                },
+                "description": "Guarda `reservadoAntes`. O passo 12 compara contra este valor para provar que a compensação devolveu a reserva."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const saldo = pm.response.json();",
+                      "pm.environment.set(\"disponivelAntes\", saldo.quantidadeDisponivel);",
+                      "pm.environment.set(\"reservadoAntes\", saldo.quantidadeReservada);",
+                      "console.log(saldo.sku, \"disponivel:\", saldo.quantidadeDisponivel,",
+                      "            \"reservado:\", saldo.quantidadeReservada, saldo.unidadeDeMedida);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "03 · Abrir a OS",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens"
+                  ]
+                },
+                "description": "Mesma abertura do cenário feliz.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"motivo\": \"Troca de oleo com insumo em falta\",\n  \"clienteId\": \"{{clienteId}}\",\n  \"mecanicoId\": \"{{mecanicoId}}\",\n  \"veiculoId\": \"{{veiculoId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                      "const ordem = pm.response.json();",
+                      "pm.test(\"nasce em RECEBIDA\", () => pm.expect(ordem.status).to.eql(\"RECEBIDA\"));",
+                      "pm.environment.set(\"ordemId\", ordem.id);",
+                      "console.log(\"ordem aberta:\", ordem.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "04 · Iniciar o diagnóstico",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico"
+                  ]
+                },
+                "description": "Direto no serviço de ordens."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "05 · Adicionar 2 L do insumo com saldo",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/insumos",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/insumos"
+                  ]
+                },
+                "description": "Este passo da saga **vai confirmar**. É o que será compensado.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"insumoId\": \"{{insumoComSaldo}}\",\n  \"quantidade\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200 ou 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "06 · Adicionar 1 L do insumo sem saldo",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/insumos",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/insumos"
+                  ]
+                },
+                "description": "Este passo **vai recusar**. O serviço de ordens não sabe disso: quem conhece o saldo é o catálogo, e a resposta vem por evento.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"insumoId\": \"{{insumoSemSaldo}}\",\n  \"quantidade\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200 ou 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "07 · Gerar o orçamento",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/orcamento",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/orcamento"
+                  ]
+                },
+                "description": "A OS passa para `AGUARDANDO_APROVACAO`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"custoMaoDeObra\": 300.0,\n  \"custoInsumos\": 180.0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "08 · Aprovar o orçamento — dispara a saga",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao"
+                  ]
+                },
+                "description": "Dois comandos `ReservarEstoque` saem pela OUTBOX, um por insumo."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"nao avanca de estado na resposta\",",
+                      "  () => pm.expect(pm.response.json().status).to.eql(\"AGUARDANDO_APROVACAO\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "09 · Acompanhar a compensação",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+                  ]
+                },
+                "description": "**Reenvie e narre a sequência.** `EM_CURSO` com 2 pendentes → um passo `CONFIRMADO` e um `RECUSADO` → `COMPENSANDO` → `COMPENSADA` com 0 pendentes. O `motivo` do passo recusado traz o texto do catálogo."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const sagas = pm.response.json();",
+                      "const saga = sagas.find((s) => s.tipo === \"RESERVA\");",
+                      "pm.test(\"a saga de RESERVA existe\", () => pm.expect(saga).to.be.an(\"object\"));",
+                      "if (saga) {",
+                      "  const pendentes = saga.passos.filter((p) => p.situacao === \"PENDENTE\").length;",
+                      "  pm.environment.set(\"situacaoDaSaga\", saga.situacao);",
+                      "  console.log(saga.tipo, saga.situacao, \"| etapa:\", saga.etapa,",
+                      "              \"| pendentes:\", pendentes, \"de\", saga.passos.length);",
+                      "  saga.passos.forEach((p) => console.log(\"  passo\", p.insumoId, p.situacao,",
+                      "                                          p.motivo === null ? \"\" : p.motivo));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10 · Conferir que a OS foi cancelada",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}"
+                  ]
+                },
+                "description": "A compensação terminada cancela a OS. Se ainda estiver em `AGUARDANDO_APROVACAO`, a compensação está em curso: volte ao passo 09."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const composta = pm.response.json();",
+                      "pm.test(\"a OS esta em CANCELADA\", () => pm.expect(composta.ordem.status).to.eql(\"CANCELADA\"));",
+                      "console.log(\"status:\", composta.ordem.status);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "11 · Ler o motivo da recusa no histórico",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/historico"
+                  ]
+                },
+                "description": "O motivo que o catálogo devolveu fica na linha do tempo da OS, não só no log. É o que o atendente leria."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const fatos = pm.response.json();",
+                      "const motivos = fatos.map((f) => f.motivo).filter((m) => m !== null).join(\" | \");",
+                      "pm.test(\"o historico registra o motivo da recusa\",",
+                      "  () => pm.expect(motivos.toLowerCase()).to.include(\"disponivel\"));",
+                      "pm.test(\"termina em CANCELADA\",",
+                      "  () => pm.expect(fatos.map((f) => f.statusNovo)).to.include(\"CANCELADA\"));",
+                      "console.log(\"motivos:\", motivos);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "12 · Conferir que a reserva foi liberada",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos/{{insumoComSaldo}}/saldo"
+                  ]
+                },
+                "description": "**O fecho do argumento.** O insumo que havia reservado está com o reservado de volta ao valor inicial e o disponível intacto: a compensação aconteceu no banco do catálogo. Sem ela, 2 litros ficariam presos para uma OS cancelada."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const saldo = pm.response.json();",
+                      "pm.test(\"o reservado voltou ao valor inicial\",",
+                      "  () => pm.expect(Number(saldo.quantidadeReservada))",
+                      "          .to.eql(Number(pm.environment.get(\"reservadoAntes\"))));",
+                      "pm.test(\"o disponivel nao foi consumido\",",
+                      "  () => pm.expect(Number(saldo.quantidadeDisponivel))",
+                      "          .to.eql(Number(pm.environment.get(\"disponivelAntes\"))));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "3 · Cenário — Saga triste: sem resposta, compensação por prazo",
+          "description": "Aqui **ninguém responde**. O comando é publicado, o consumidor está fora do ar e o passo vence por prazo. A varredura de prazo do orquestrador compensa sozinha, sem nenhum evento de recusa — é o caminho que protege a OS de ficar presa esperando para sempre.\n\n**Antes de rodar esta pasta, derrube o consumidor:**\n\n```\nkubectl -n service-track-catalogo scale deploy/service-track-catalogo --replicas=0\n```\n\n**E ao terminar, reponha:**\n\n```\nkubectl -n service-track-catalogo scale deploy/service-track-catalogo --replicas=1\n```\n\nO prazo da etapa é de **2 minutos** por padrão e a varredura roda a cada 30 s. Para gravar sem corte longo, baixe os dois no overlay antes de subir:\n\n```\nSERVICETRACK_MESSAGING_SAGA_STEP_DEADLINE=20s\nSERVICETRACK_MESSAGING_SAGA_DEADLINE_SWEEP_INTERVAL=10s\n```\n\n**O que acontece quando o catálogo volta:** ele encontra o `ReservarEstoque` antigo no tópico e reserva estoque para uma OS já cancelada. A confirmação atrasada é tratada pelo estado da etapa, e a reserva órfã cai pelo `expiraEm` de 10 minutos, que é a rede de segurança do catálogo. Vale narrar: é desenho, não efeito colateral.",
+          "item": [
+            {
+              "name": "01 · Conferir que o catálogo responde",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos"
+                  ]
+                },
+                "description": "Grave esta resposta **antes** de escalar para zero. Depois de derrubar, reenviar aqui devolve `503` com `ServicoIndisponivelException` — o BFF traduz dependência fora do ar em erro de cliente, e isso também é parte da demonstração."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"o catalogo responde\", () => pm.response.to.have.status(200));",
+                      "console.log(\"insumos no catalogo:\", pm.response.json().length);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "02 · Abrir a OS",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens"
+                  ]
+                },
+                "description": "Com o catálogo já fora do ar. O serviço de ordens não depende dele para abrir a OS.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"motivo\": \"Revisao com o catalogo fora do ar\",\n  \"clienteId\": \"{{clienteId}}\",\n  \"mecanicoId\": \"{{mecanicoId}}\",\n  \"veiculoId\": \"{{veiculoId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 201\", () => pm.response.to.have.status(201));",
+                      "const ordem = pm.response.json();",
+                      "pm.test(\"nasce em RECEBIDA\", () => pm.expect(ordem.status).to.eql(\"RECEBIDA\"));",
+                      "pm.environment.set(\"ordemId\", ordem.id);",
+                      "console.log(\"ordem aberta:\", ordem.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "03 · Iniciar o diagnóstico",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/diagnostico"
+                  ]
+                },
+                "description": "Direto no serviço de ordens."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "04 · Adicionar 2 L do insumo com saldo",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/insumos",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/insumos"
+                  ]
+                },
+                "description": "O insumo tem saldo. **A falha não é de negócio** — é o consumidor que não está lá para processar o comando.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"insumoId\": \"{{insumoComSaldo}}\",\n  \"quantidade\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200 ou 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "05 · Gerar o orçamento",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{urlOrdens}}/ordens/{{ordemId}}/orcamento",
+                  "host": [
+                    "{{urlOrdens}}/ordens/{{ordemId}}/orcamento"
+                  ]
+                },
+                "description": "A OS passa para `AGUARDANDO_APROVACAO`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"custoMaoDeObra\": 300.0,\n  \"custoInsumos\": 180.0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "06 · Aprovar o orçamento — dispara a saga",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/orcamento/aprovacao"
+                  ]
+                },
+                "description": "O comando sai da OUTBOX e é publicado no tópico. Ninguém consome."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "07 · Ver o passo pendente sem resposta",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+                  ]
+                },
+                "description": "`EM_CURSO`, 1 passo `PENDENTE`, `motivo` nulo. Reenvie algumas vezes para mostrar que **nada muda**: é a espera, não um erro."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const sagas = pm.response.json();",
+                      "const saga = sagas.find((s) => s.tipo === \"RESERVA\");",
+                      "pm.test(\"a saga de RESERVA existe\", () => pm.expect(saga).to.be.an(\"object\"));",
+                      "if (saga) {",
+                      "  const pendentes = saga.passos.filter((p) => p.situacao === \"PENDENTE\").length;",
+                      "  pm.environment.set(\"situacaoDaSaga\", saga.situacao);",
+                      "  console.log(saga.tipo, saga.situacao, \"| etapa:\", saga.etapa,",
+                      "              \"| pendentes:\", pendentes, \"de\", saga.passos.length);",
+                      "  saga.passos.forEach((p) => console.log(\"  passo\", p.insumoId, p.situacao,",
+                      "                                          p.motivo === null ? \"\" : p.motivo));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "08 · Acompanhar a compensação por prazo",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}/saga"
+                  ]
+                },
+                "description": "Depois do prazo da etapa, a varredura reprova o passo e compensa. Como nenhum passo havia confirmado, não há `LiberarReserva` a publicar: a saga vai direto a `COMPENSADA`. Reenvie até ver."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const sagas = pm.response.json();",
+                      "const saga = sagas.find((s) => s.tipo === \"RESERVA\");",
+                      "pm.test(\"a saga de RESERVA existe\", () => pm.expect(saga).to.be.an(\"object\"));",
+                      "if (saga) {",
+                      "  const pendentes = saga.passos.filter((p) => p.situacao === \"PENDENTE\").length;",
+                      "  pm.environment.set(\"situacaoDaSaga\", saga.situacao);",
+                      "  console.log(saga.tipo, saga.situacao, \"| etapa:\", saga.etapa,",
+                      "              \"| pendentes:\", pendentes, \"de\", saga.passos.length);",
+                      "  saga.passos.forEach((p) => console.log(\"  passo\", p.insumoId, p.situacao,",
+                      "                                          p.motivo === null ? \"\" : p.motivo));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "09 · Conferir que a OS foi cancelada",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/ordens/{{ordemId}}"
+                  ]
+                },
+                "description": "Mesmo desfecho do cenário infeliz, por caminho diferente: lá houve resposta negativa, aqui não houve resposta nenhuma. **O orquestrador não deixa a OS presa em nenhum dos dois.**"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"responde 200\", () => pm.response.to.have.status(200));",
+                      "const composta = pm.response.json();",
+                      "pm.test(\"a OS esta em CANCELADA\", () => pm.expect(composta.ordem.status).to.eql(\"CANCELADA\"));",
+                      "console.log(\"status:\", composta.ordem.status);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10 · Conferir que o catálogo voltou",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-api-key",
+                    "value": "{{apiKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}{{prefixoBff}}/catalogo/insumos",
+                  "host": [
+                    "{{baseUrl}}{{prefixoBff}}/catalogo/insumos"
+                  ]
+                },
+                "description": "Depois de `scale --replicas=1`. Reenvie até responder `200` — o pod sobe em cerca de 40 segundos. Deixe o ambiente como estava antes de encerrar a gravação."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"o catalogo voltou\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
         }
       ]
     }
