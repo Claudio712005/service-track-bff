@@ -5,7 +5,8 @@ servido por este serviço. Nenhum outro microsserviço é alcançável por gatew
 então esta coleção cobre tudo que um cliente externo consegue chamar.
 
 ```
-service-track-bff.postman_collection.json     17 requisições em 6 pastas
+service-track-bff.postman_collection.json     17 requisições em 6 pastas,
+                                              mais a pasta Apresentação com 35 em 3 cenários
 ambientes/local.postman_environment.json      compose ou kind
 ambientes/hml.postman_environment.json        modelo, sem valor volátil
 ambientes/prd.postman_environment.json        modelo, sem valor volátil
@@ -43,21 +44,31 @@ scripts/gerar-ambiente-postman.sh hml ci     # ou mobile
 ```
 
 Ele lê a URL de `/servicetrack/<env>/api/base-url` no SSM e a chave do API Gateway, e escreve
-`ambientes/<env>.gerado.json` — que está no `.gitignore`. Importe esse arquivo no Postman.
+`ambientes/<env>.gerado.json` — que está no `.gitignore`. Importe **esse** arquivo no Postman,
+não o modelo.
+
+**Importar o modelo versionado é a causa mais comum de `403` em tudo.** A `apiKey` dele vem vazia
+de propósito, e o gateway recusa toda requisição sem chave **antes** de chegar na aplicação. Com
+a chave certa e sem token a resposta é `401`, não `403` — é assim que se distinguem os dois.
 
 Depois de cada recriação de ambiente, gere de novo. Se a chamada responder `403` sem explicação,
 quase sempre é a chave velha.
 
 ## Como usar
 
-1. Importe a coleção e o ambiente
-2. Preencha `cpf` e `senha` de um usuário que exista no serviço de usuários
+1. Importe a coleção e o ambiente **gerado**
+2. Preencha `senha` — é o único campo que falta, e ela não é versionada aqui
 3. Rode **Autenticação → Entrar e guardar o token**: o teste grava o token no ambiente ativo
 4. As demais requisições usam esse token como Bearer, pela autenticação da coleção
 
-`clienteId`, `mecanicoId`, `veiculoId` e `insumoId` são UUID e precisam existir nos serviços
-donos — o seed do catálogo cria insumos e serviços; cliente, mecânico e veículo vêm do serviço
-de usuários. `ordemId` é preenchido sozinho quando você abre uma ordem.
+**Os identificadores já vêm preenchidos, porque vêm de seed e não de `apply`.** `cpf`,
+`clienteId`, `mecanicoId` e `veiculoId` são do baseline do `service-track-usuarios-veiculos`;
+`insumoId`, `insumoComSaldo` e `insumoSemSaldo` são do baseline do `service-track-catalogo`. São
+ids fixos: sobrevivem a recriação de ambiente porque a esteira Banco reaplica o mesmo seed. A
+senha do usuário de demonstração está documentada no README do serviço de usuários — ela não
+entra em git aqui.
+
+`ordemId` é preenchido sozinho quando você abre uma ordem.
 
 As rotas da pasta **Saúde** são abertas no BFF: não exigem token e ignoram a autenticação da
 coleção.
@@ -83,3 +94,61 @@ efeito, consulte **Sagas da ordem** e **Histórico da ordem** depois de aprovar.
 
 Se o consumo for recusado por falta de saldo, a OS fica em `EM_EXECUCAO` com uma linha de
 bloqueio no histórico — não há compensação, porque baixar o reservado é irreversível.
+
+## A pasta Apresentação
+
+Três cenários, cada um autossuficiente, na ordem em que entram na gravação:
+
+| Pasta | O que prova | Desfecho |
+|---|---|---|
+| **1 · OS completa** | as duas sagas da OS confirmando | `FINALIZADA` |
+| **2 · Saga infeliz** | o catálogo responde **não**: compensação do que já havia confirmado | `CANCELADA` |
+| **3 · Saga triste** | **ninguém** responde: o prazo da etapa vence e a varredura compensa | `CANCELADA` |
+
+Cada pasta abre a própria OS e termina conferindo o saldo do insumo no catálogo. **É essa última
+conferência que prova a saga**: o efeito — e a ausência dele, depois da compensação — está no
+banco do serviço dono do dado, não num log do orquestrador.
+
+### O que é preciso antes
+
+1. **Token:** rode a pasta Autenticação.
+2. **Port-forward do serviço de ordens**, que as pastas usam em `{{urlOrdens}}`:
+   ```bash
+   kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80
+   ```
+3. **Seeds aplicados.** A primeira requisição da pasta 2 confere que o gatilho está armado: o
+   insumo `OL-20W50-MIN-1L` com `quantidadeDisponivel` igual a zero.
+
+### Por que parte das requisições não passa pela borda
+
+Diagnóstico, insumo, orçamento e finalização **não existem no BFF**. A borda pública tem duas
+rotas e nada mais (`IAC-ADR-035`), e o BFF só abre e aprova a ordem. Montar a OS é conversa com o
+serviço que é dono dela, e por isso essas requisições vão direto ao `ordens`, pelo port-forward.
+É fronteira desenhada, não falta de rota — vale uma frase na narração.
+
+### As requisições de saga pedem reenvio
+
+A OUTBOX publica a cada 2 s, então a situação muda em segundos. Os testes dessas chamadas
+conferem o formato e **imprimem a situação de cada passo no console**, sem reprovar enquanto a
+saga está em curso. Quem reprova é a conferência de status que vem depois.
+
+### O cenário 3 mexe no ambiente, e desfaz
+
+Ele exige derrubar o consumidor antes e repor depois:
+
+```bash
+kubectl -n service-track-catalogo scale deploy/service-track-catalogo --replicas=0
+kubectl -n service-track-catalogo scale deploy/service-track-catalogo --replicas=1
+```
+
+O prazo da etapa é de **2 minutos** por padrão, com varredura a cada 30 s. Para gravar sem corte
+longo, baixe os dois no overlay antes de subir:
+
+```
+SERVICETRACK_MESSAGING_SAGA_STEP_DEADLINE=20s
+SERVICETRACK_MESSAGING_SAGA_DEADLINE_SWEEP_INTERVAL=10s
+```
+
+Quando o catálogo volta, ele encontra o `ReservarEstoque` antigo no tópico e reserva estoque para
+uma OS já cancelada. A confirmação atrasada é tratada pelo estado da etapa, e a reserva órfã cai
+pelo `expiraEm` de 10 minutos — a rede de segurança do catálogo. Vale narrar: é desenho.
