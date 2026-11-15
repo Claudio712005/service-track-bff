@@ -109,15 +109,31 @@ Cada pasta abre a própria OS e termina conferindo o saldo do insumo no catálog
 conferência que prova a saga**: o efeito — e a ausência dele, depois da compensação — está no
 banco do serviço dono do dado, não num log do orquestrador.
 
-### O que é preciso antes
+### Um comando deixa o ambiente pronto
 
-1. **Token:** rode a pasta Autenticação.
-2. **Port-forward do serviço de ordens**, que as pastas usam em `{{urlOrdens}}`:
-   ```bash
-   kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80
-   ```
-3. **Seeds aplicados.** A primeira requisição da pasta 2 confere que o gatilho está armado: o
-   insumo `OL-20W50-MIN-1L` com `quantidadeDisponivel` igual a zero.
+```bash
+ST_SENHA_DEMO='<senha do seed>' scripts/preparar-apresentacao.sh hml --esperar
+```
+
+Com `--esperar`, ele aguarda a esteira **Orquestrar ambiente** terminar — e se nenhuma estiver em
+curso, espera uma começar. Depois:
+
+1. lê a URL da borda no SSM e a chave do consumidor no API Gateway;
+2. confere que o BFF responde `readiness` pela borda;
+3. **faz login e grava o token** no ambiente, para a pasta Apresentação rodar sem passar pela
+   Autenticação;
+4. **confere que o gatilho da saga está armado** — `OL-20W50-MIN-1L` com disponível zero — e
+   avisa alto se não estiver, porque aí o cenário da recusa não recusa;
+5. escreve `ambientes/<env>.gerado.json` e lista o que ficou sem valor.
+
+Sem `ST_SENHA_DEMO` ele prepara tudo menos o token. A senha está documentada no README do
+`service-track-usuarios-veiculos` e não é versionada aqui.
+
+**O que o script não faz:** o port-forward. Ele fica no seu terminal:
+
+```bash
+kubectl -n service-track-ordens port-forward svc/service-track-ordens 18082:80
+```
 
 ### Por que parte das requisições não passa pela borda
 
